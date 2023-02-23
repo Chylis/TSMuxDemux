@@ -11,8 +11,15 @@
 @class TSPacket;
 @class TSElementaryStreamBuilder;
 
+@interface TSContinuityCountError: NSObject
+@property(nonatomic, readonly) uint8_t receivedCC;
+@property(nonatomic, readonly) uint8_t expectedCC;
+@property(nonatomic, readonly, nonnull) NSString *message;
+@end
+
 @protocol TSElementaryStreamBuilderDelegate
 -(void)streamBuilder:(TSElementaryStreamBuilder* _Nonnull)builder didBuildAccessUnit:(TSAccessUnit* _Nonnull)accessUnit;
+-(void)streamBuilder:(TSElementaryStreamBuilder* _Nonnull)builder didReceiveCCError:(TSContinuityCountError* _Nonnull)ccError;
 @end
 
 /// A class that constructs an elementary stream by collecting access units that belong together.

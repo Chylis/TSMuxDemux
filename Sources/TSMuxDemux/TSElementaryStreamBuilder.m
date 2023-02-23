@@ -10,11 +10,30 @@
 #import "TSPacket.h"
 #import <CoreMedia/CoreMedia.h>
 
+@implementation TSContinuityCountError: NSObject
+-(instancetype _Nonnull)initWithReceived:(uint8_t)receivedCC
+                                expected:(uint8_t)expectedCC
+                                 message:(NSString*)message
+{
+    self = [super init];
+    if (self) {
+        _receivedCC = receivedCC;
+        _expectedCC = expectedCC;
+        _message = message;
+    }
+    return self;
+}
+@end
+
 @interface TSElementaryStreamBuilder()
 
 @property(nonatomic) CMTime pts;
 @property(nonatomic) CMTime dts;
 @property(nonatomic, strong) NSMutableData *collectedData;
+
+@property(nonatomic, strong) TSPacket *lastPacket;
+@property(nonatomic, strong) TSPacket *secondLastPacket;
+@property(nonatomic, strong) TSPacket *thirdLastPacket;
 
 @end
 
@@ -29,13 +48,39 @@
         _delegate = delegate;
         _pid = pid;
         _streamType = streamType;
+        _lastPacket = nil;
+        _secondLastPacket = nil;
+        _thirdLastPacket = nil;
     }
     return self;
 }
 
+
+
 -(void)addTsPacket:(TSPacket* _Nonnull)tsPacket
 {
     NSAssert(tsPacket.header.pid == self.pid, @"PID mismatch");
+    
+    //NSLog(@"pid: %u, CC '%u'", self.pid, tsPacket.header.continuityCounter);
+    
+    NSArray *ccResult = [self validateContinuityCounter:tsPacket
+                                             lastPacket:self.lastPacket
+                                       secondLastPacket:self.secondLastPacket
+                                        thirdLastPacket:self.thirdLastPacket];
+    
+    BOOL isDuplicatePacket = [ccResult[0] boolValue];
+    TSContinuityCountError *ccError = ccResult.count > 1 ? ccResult[1] : nil;
+    if (ccError) {
+        [self.delegate streamBuilder:self didReceiveCCError:ccError];
+    }
+    
+    [self setThirdLastPacket:self.secondLastPacket];
+    [self setSecondLastPacket:self.lastPacket];
+    [self setLastPacket:tsPacket];
+    
+    if (isDuplicatePacket) {
+        return;
+    }
     
     if (tsPacket.header.payloadUnitStartIndicator) {
         // First packet of new PES
@@ -54,8 +99,83 @@
         self.dts = firstAccessUnit.dts;
         self.collectedData = [NSMutableData dataWithData:firstAccessUnit.compressedData];
     } else {
-        [self.collectedData appendData:tsPacket.payload];
+        if (tsPacket.payload.length > 0) {
+            [self.collectedData appendData:tsPacket.payload];
+        }
     }
+}
+
+
+-(NSArray* _Nullable)validateContinuityCounter:(TSPacket*)currentPacket
+                                    lastPacket:(TSPacket*)lastPacket
+                              secondLastPacket:(TSPacket*)secondLastPacket
+                               thirdLastPacket:(TSPacket*)thirdLastPacket
+{
+    TSContinuityCountError *error = nil;
+    BOOL isDuplicateCC = currentPacket.header.continuityCounter == lastPacket.header.continuityCounter;
+    
+    // "The continuity counter may be discontinuous when the discontinuity_indicator is set to '1' (refer to 2.4.3.4)."
+    if (lastPacket && !currentPacket.adaptationField.discontinuityFlag) {
+        if (isDuplicateCC) {
+            /*
+            // Duplicate packets may be sent as two, and only two, consecutive Transport Stream packets of the same PID.
+            BOOL tooManyDuplicateCCs =
+            lastPacket.header.continuityCounter == secondLastPacket.header.continuityCounter
+            && lastPacket.header.continuityCounter == thirdLastPacket.header.continuityCounter;
+            if (tooManyDuplicateCCs) {
+                // e.g. 0-1-2-2-2-2-3-4-5 (error reason: CC 2 must occur 3 times).
+                error = [[TSContinuityCountError alloc] initWithReceived:currentPacket.header.continuityCounter
+                                                                expected:[self nextContinuityCounter:currentPacket.header.continuityCounter]
+                                                                 message:@"Too many packets with same CC (>= 4)"];
+            } else if (currentPacket.header.adaptationMode != TSAdaptationModePayloadOnly &&
+                       currentPacket.header.adaptationMode != TSAdaptationModeAdaptationAndPayload) {
+                // The duplicate packets shall have the same continuity_counter value as the original packet and the adaptation_field_control field shall be equal to '01' or '11'.
+                error = [[TSContinuityCountError alloc] initWithReceived:currentPacket.header.continuityCounter
+                                                                expected:currentPacket.header.continuityCounter
+                                                                 message:@"The adaptation_field_control of the duplicate packet shall be equal to '01' or '11'"];
+            } */
+            
+            // TODO: Implement check for "isEqualExceptPCRIfPresent" (see below comment):
+            // In duplicate packets each byte of the original packet shall be duplicated, with the exception that in the program clock reference fields, if present, a valid value shall be encoded.
+        } else {
+            // The continuity_counter shall not be incremented when the adaptation_field_control of the packet equals '00' or '10'.
+            BOOL isNotExpectingIncrementedCC =
+            currentPacket.header.adaptationMode == TSAdaptationModeReserved ||
+            currentPacket.header.adaptationMode == TSAdaptationModeAdaptationOnly;
+            if (isNotExpectingIncrementedCC) {
+                // e.g. 0-1-2
+                error = [[TSContinuityCountError alloc] initWithReceived:currentPacket.header.continuityCounter
+                                                                expected:lastPacket.header.continuityCounter
+                                                                 message:@"The continuity_counter shall not be incremented when the adaptation_field_control of the packet equals '00' or '10'"];
+            } else {
+                /* // Duplicate packets may be sent as two, and only two, consecutive Transport Stream packets of the same PID.
+                BOOL tooFewDuplicateCCs =
+                lastPacket.header.continuityCounter == secondLastPacket.header.continuityCounter &&
+                secondLastPacket.header.continuityCounter != thirdLastPacket.header.continuityCounter;
+                if (tooFewDuplicateCCs) {
+                    // e.g. 0-1-2-2-3 (error reason: CC 2 must occur 3 times).
+                    error = [[TSContinuityCountError alloc] initWithReceived:currentPacket.header.continuityCounter
+                                                                    expected:lastPacket.header.continuityCounter
+                 message:@"Too few duplicate packets with same CC (< 2)"];
+                 } else {*/
+                uint8_t expectedCC = [self nextContinuityCounter:lastPacket.header.continuityCounter];
+                if (currentPacket.header.continuityCounter != expectedCC) {
+                    error = [[TSContinuityCountError alloc] initWithReceived:currentPacket.header.continuityCounter
+                                                                    expected:expectedCC
+                                                                     message:@"Unexpected CC"];
+                }
+                //}
+            }
+        }
+    }
+    
+    return error ? @[@(isDuplicateCC), error] : @[@(isDuplicateCC)];
+}
+
+-(uint8_t)nextContinuityCounter:(uint8_t)currentContinuityCounter
+{
+    static const NSUInteger MAX_VALUE = 16;
+    return (currentContinuityCounter + 1) % MAX_VALUE;
 }
 
 @end
