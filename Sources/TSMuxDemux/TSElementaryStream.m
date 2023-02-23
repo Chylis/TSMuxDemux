@@ -44,7 +44,7 @@
 
 -(BOOL)isEqualToElementaryStream:(TSElementaryStream*)es
 {
-    return self.pid == es.pid;
+    return self.pid == es.pid && self.streamType == es.streamType;
 }
 
 -(NSUInteger)hash

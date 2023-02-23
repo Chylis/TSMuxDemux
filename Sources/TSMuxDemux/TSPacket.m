@@ -127,8 +127,15 @@
 #pragma mark - TSPacketAdaptationField
 
 @implementation TSAdaptationField
-
 -(instancetype)initWithAdaptationFieldLength:(uint8_t)adaptationFieldLength
+                           discontinuityFlag:(BOOL)discontinuityFlag
+                       randomAccessFlag:(BOOL)randomAccessFlag
+                         esPriorityFlag:(BOOL)esPriorityFlag
+                                     pcrFlag:(BOOL)pcrFlag
+                                    oPcrFlag:(BOOL)oPcrFlag
+                           splicingPointFlag:(BOOL)splicingPointFlag
+                    transportPrivateDataFlag:(BOOL)transportPrivateDataFlag
+                adaptationFieldExtensionFlag:(BOOL)adaptationFieldExtensionFlag
                                      pcrBase:(uint64_t)pcrBase
                                       pcrExt:(uint16_t)pcrExt
                         numberOfStuffedBytes:(NSUInteger)numberOfStuffedBytes
@@ -138,6 +145,16 @@
     self = [super init];
     if (self) {
         _adaptationFieldLength = adaptationFieldLength;
+        
+        _discontinuityFlag = discontinuityFlag;
+        _randomAccessFlag = randomAccessFlag;
+        _esPriorityFlag = esPriorityFlag;
+        _pcrFlag = pcrFlag;
+        _oPcrFlag = oPcrFlag;
+        _splicingPointFlag = splicingPointFlag;
+        _transportPrivateDataFlag = transportPrivateDataFlag;
+        _adaptationFieldExtensionFlag = adaptationFieldExtensionFlag;
+        
         _pcrBase = pcrBase;
         _pcrExt = pcrExt;
         _numberOfStuffedBytes = numberOfStuffedBytes;
@@ -177,6 +194,14 @@
     }
     
     return [[TSAdaptationField alloc] initWithAdaptationFieldLength:adaptationFieldLength
+                                                  discontinuityFlag:NO
+                                                   randomAccessFlag:NO
+                                                     esPriorityFlag:NO
+                                                            pcrFlag:hasPcr
+                                                           oPcrFlag:NO
+                                                  splicingPointFlag:NO
+                                           transportPrivateDataFlag:NO
+                                       adaptationFieldExtensionFlag:NO
                                                             pcrBase:pcrBase
                                                              pcrExt:pcrExt
                                                numberOfStuffedBytes:numberOfBytesToStuff];
@@ -184,20 +209,75 @@
 
 +(instancetype)initWithTsPacketData:(NSData*)tsPacketData
 {
+    NSUInteger offset = TS_PACKET_HEADER_SIZE;
+    
     uint8_t adaptationFieldLength = 0x00;
-    [tsPacketData getBytes:&adaptationFieldLength range:NSMakeRange(TS_PACKET_HEADER_SIZE, 1)];
+    [tsPacketData getBytes:&adaptationFieldLength range:NSMakeRange(offset, 1)];
+    offset +=1;
     
-    if (adaptationFieldLength > 0) {
-        // FIXME: Parse remaining fields...
-    }
-    
-    // FIXME MG
+    BOOL discontinuityFlag = NO;
+    BOOL randomAccessIndicator = NO;
+    BOOL esPriorityIndicator = NO;
+    BOOL pcrFlag = NO;
+    BOOL oPcrFlag = NO;
+    BOOL splicingPointFlag = NO;
+    BOOL transportPrivateDataFlag = NO;
+    BOOL adaptationFieldExtensionFlag = NO;
     const uint64_t pcrBase = 0;
     const uint16_t pcrExt = 0;
+    
+    if (adaptationFieldLength > 0) {
+        // byte 2:
+        // bit 1:               discontinuity_indicator
+        // bit 2:               random_access_indicator
+        // bit 3:               elementary_stream_priority_indicator
+        // bit 4:               PCR_flag
+        // bit 5:               OPCR_flag
+        // bit 6:               splicing_point_flag
+        // bit 7:               transport_private_data_flag
+        // bit 8:               adaptation_field_extension_flag
+        uint8_t byte2 = 0x00;
+        [tsPacketData getBytes:&byte2 range:NSMakeRange(offset, 1)];
+        offset +=1;
+        
+        discontinuityFlag = (byte2 & 0x80) != 0x00;
+        randomAccessIndicator = (byte2 & 0x40) != 0x00;
+        esPriorityIndicator = (byte2 & 0x20) != 0x00;
+        pcrFlag = (byte2 & 0x10) != 0x00;
+        oPcrFlag = (byte2 & 0x8) != 0x00;
+        splicingPointFlag = (byte2 & 0x4) != 0x00;
+        transportPrivateDataFlag = (byte2 & 0x2) != 0x00;
+        adaptationFieldExtensionFlag = (byte2 & 0x1) != 0x00;
+        
+        /*
+        if (pcrFlag) {
+            // TODO: Parse pcrBase + pcrExtension
+        }
+        if (oPcrFlag) {
+            // TODO: Parse remaining fields...
+        }
+        if (splicingPointFlag) {
+            // TODO: Parse remaining fields...
+        }
+        if (transportPrivateDataFlag) {
+            // TODO: Parse remaining fields...
+        }
+        if (adaptationFieldExtensionFlag) {
+            // TODO: Parse remaining fields...
+        } */
+    }
     
     // FIXME MG: Read a correct value here after parsing adaptationFieldLength
     const NSUInteger dummyNumberOfStuffedBytes = adaptationFieldLength - 1;
     TSAdaptationField *adaptationField = [[TSAdaptationField alloc] initWithAdaptationFieldLength:adaptationFieldLength
+                                                                                discontinuityFlag:discontinuityFlag
+                                                                                 randomAccessFlag:randomAccessIndicator
+                                                                                   esPriorityFlag:esPriorityIndicator
+                                                                                          pcrFlag:pcrFlag
+                                                                                         oPcrFlag:oPcrFlag
+                                                                                splicingPointFlag:splicingPointFlag
+                                                                         transportPrivateDataFlag:transportPrivateDataFlag
+                                                                     adaptationFieldExtensionFlag:adaptationFieldExtensionFlag
                                                                                           pcrBase:pcrBase
                                                                                            pcrExt:pcrExt
                                                                              numberOfStuffedBytes:dummyNumberOfStuffedBytes];

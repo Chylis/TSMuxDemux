@@ -23,7 +23,7 @@
 /// The value in this field shall not exceed 1021 (0x3FD).
 @property(nonatomic, readonly) uint16_t sectionLength;
 
-/// Bytes 4 and 5 have different meanings depending on the table type (e.g. transport stream id, program number, etc
+/// Bytes 4 and 5 have different meanings depending on the table type (e.g. transport stream id, program number, etc)
 @property(nonatomic, readonly) uint16_t byte4And5;
 
 @property(nonatomic, readonly) uint8_t reservedBits3;

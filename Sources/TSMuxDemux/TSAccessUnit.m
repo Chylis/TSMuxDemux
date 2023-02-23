@@ -223,6 +223,22 @@ static const uint8_t TIMESTAMP_LENGTH = 5; // A timestamp (pts/dts) is a 33-bit 
         case TSStreamTypeH265:      return YES;
         case TSStreamTypeADTSAAC:   return NO;
     }
+    return NO;
+}
+
++(NSString*)streamTypeDescription:(TSStreamType)streamType
+{
+    switch (streamType) {
+        case TSStreamTypeADTSAAC:
+            return @"ADTS AAC";
+
+        case TSStreamTypeH264:
+            return @"H264";
+
+        case TSStreamTypeH265:
+            return @"H265";
+    }
+    return [NSString stringWithFormat:@"Unknown '0x%02x'", streamType];
 }
 
 /// The stream_id may be set to any valid value which correctly describes the elementary stream type as defined in Table 2-22.

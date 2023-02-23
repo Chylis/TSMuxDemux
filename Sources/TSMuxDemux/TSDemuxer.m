@@ -81,6 +81,16 @@ typedef NSNumber *ElementaryStreamPid;
     [self.delegate demuxer:self didReceivePmt:pmt previousPmt:prevPmt];
 }
 
+-(NSDictionary<NSNumber*, TSElementaryStreamStats*>* _Nonnull)statistics;
+{
+    NSMutableDictionary *map = [NSMutableDictionary new];
+    for (NSNumber *pid in self.streamBuilders) {
+        TSElementaryStreamBuilder *builder = self.streamBuilders[pid];
+        map[@(builder.pid)] = builder.statistics;
+    }
+    return map;
+}
+
 -(void)demux:(NSData* _Nonnull)tsDataChunk
 {
     [self.tsDataChunks addObject:tsDataChunk];
@@ -100,14 +110,19 @@ typedef NSNumber *ElementaryStreamPid;
                 self.pat = [[TSProgramAssociationTable alloc] initWithTsPacket:tsPacket];
             } else if (pid == PID_CAT) {
                 // TODO Parse...
+                NSLog(@"Received CAT");
             } else if (pid == PID_TSDT) {
                 // TODO Parse...
+                NSLog(@"Received TSDT");
             } else if (pid == PID_IPMP) {
                 // TODO Parse...
+                NSLog(@"Received IPMP");
             } else if (pid == PID_ASI) {
                 // TODO Parse...
+                NSLog(@"Received ASI");
             } else if (pid == PID_NULL_PACKET) {
                 // TODO Parse...
+                //NSLog(@"Received null packet");
             } else {
                 ProgramNumber programNumber = [self.pat programNumberFromPid:pid];
                 const BOOL isPidInPat = programNumber != nil;
@@ -115,6 +130,7 @@ typedef NSNumber *ElementaryStreamPid;
                     // PSI
                     if ([programNumber isEqualToNumber:@(PROGRAM_NUMBER_NETWORK_INFO)]) {
                         // TODO Parse...
+                        NSLog(@"Received Network Info table");
                     } else {
                         TSProgramMapTable *pmt = [[TSProgramMapTable alloc] initWithTsPacket:tsPacket];
                         [self updatePmt:pmt];
