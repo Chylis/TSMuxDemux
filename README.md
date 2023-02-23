@@ -100,3 +100,16 @@ self.demuxer = [[TSDemuxer alloc] initWithDelegate:self];
 
 ## Notes, Todos and Limitations
 - The muxer and demuxer are (currently) not thread safe - i.e. it is the responsibility of the client to ensure that calls are performed from the same thread.
+
+
+Resources:
+
+- https://books.google.se/books?id=5kVUfnt1QQYC&lpg=PA181&ots=VvZoiOi3jm&dq=ts_sync_loss&pg=PA181#v=onepage&q=ts_sync_loss&f=false
+
+# TR101290
+https://github.com/VitaliyKononovich/iptv-analyzer/blob/master/ts/ts_stat.py
+https://github.com/Cinegy/TsAnalyser/blob/master/Cinegy.TsAnalyzer/Program.cs
+https://github.com/tengym/tsparse/blob/master/tscheck/src/TsErrorCheck_TwoLevel.c#L482
+https://github.com/easyice/libeasyice/tree/master/libtr101290/src
+https://cdn.rohde-schwarz.com/pws/dl_downloads/dl_application/application_notes/7bm55/7BM55_0E.pdf page 9
+https://www.tek.com/en/documents/technical-brief/laymans-guide-pcr-measurements

@@ -54,6 +54,14 @@ typedef NS_ENUM(uint8_t, TSAdaptationMode) {
 
 /// Specifies the number of bytes in the adaptation_field immediately following the adaptation_field_length
 @property(nonatomic, readonly) uint8_t adaptationFieldLength;
+@property(nonatomic, readonly) BOOL discontinuityFlag;
+@property(nonatomic, readonly) BOOL randomAccessFlag;
+@property(nonatomic, readonly) BOOL esPriorityFlag;
+@property(nonatomic, readonly) BOOL pcrFlag;
+@property(nonatomic, readonly) BOOL oPcrFlag;
+@property(nonatomic, readonly) BOOL splicingPointFlag;
+@property(nonatomic, readonly) BOOL transportPrivateDataFlag;
+@property(nonatomic, readonly) BOOL adaptationFieldExtensionFlag;
 @property(nonatomic, readonly) NSUInteger numberOfStuffedBytes;
 
 
@@ -66,9 +74,17 @@ typedef NS_ENUM(uint8_t, TSAdaptationMode) {
 
 
 -(instancetype _Nonnull)initWithAdaptationFieldLength:(uint8_t)adaptationFieldLength
+                                    discontinuityFlag:(BOOL)discontinuityFlag
+                                     randomAccessFlag:(BOOL)randomAccessFlag
+                                       esPriorityFlag:(BOOL)esPriorityFlag
+                                              pcrFlag:(BOOL)pcrFlag
+                                             oPcrFlag:(BOOL)oPcrFlag
+                                    splicingPointFlag:(BOOL)splicingPointFlag
+                             transportPrivateDataFlag:(BOOL)transportPrivateDataFlag
+                         adaptationFieldExtensionFlag:(BOOL)adaptationFieldExtensionFlag
                                               pcrBase:(uint64_t)pcrBase
                                                pcrExt:(uint16_t)pcrExt
-                        numberOfStuffedBytes:(NSUInteger)numberOfStuffedBytes;
+                                 numberOfStuffedBytes:(NSUInteger)numberOfStuffedBytes;
 
 // Returns the byte representation of the TSAdaptationField.
 -(NSData* _Nonnull)getBytes;

@@ -50,5 +50,6 @@ typedef NS_ENUM(uint8_t, TSStreamType) {
 
 -(BOOL)isVideoStreamType;
 +(BOOL)isVideoStreamType:(TSStreamType)streamType;
++(NSString* _Nonnull)streamTypeDescription:(TSStreamType)streamType;
 
 @end
