@@ -10,8 +10,11 @@
 #import "TSConstants.h"
 #import "TSAccessUnit.h"
 #import "TSProgramMapTable.h"
+#import "TSElementaryStreamStats.h"
 #import "TSProgramAssociationTable.h"
+
 @class TSDemuxer;
+
 
 @protocol TSDemuxerDelegate
 -(void)demuxer:(TSDemuxer * _Nonnull)demuxer didReceivePat:(TSProgramAssociationTable* _Nonnull)pat previousPat:(TSProgramAssociationTable* _Nullable)previousPat;
@@ -30,5 +33,8 @@
 
 /// (Currently) not thread safe - i.e. make sure you call this from the same thread.
 -(void)demux:(NSData* _Nonnull)tsDataChunk;
+
+// Key=pid
+-(NSDictionary<NSNumber*, TSElementaryStreamStats*>* _Nonnull)stats;
 
 @end

@@ -10,12 +10,8 @@
 #import "TSAccessUnit.h"
 @class TSPacket;
 @class TSElementaryStreamBuilder;
-
-@interface TSContinuityCountError: NSObject
-@property(nonatomic, readonly) uint8_t receivedCC;
-@property(nonatomic, readonly) uint8_t expectedCC;
-@property(nonatomic, readonly, nonnull) NSString *message;
-@end
+@class TSElementaryStreamStats;
+@class TSContinuityCountError;
 
 @protocol TSElementaryStreamBuilderDelegate
 -(void)streamBuilder:(TSElementaryStreamBuilder* _Nonnull)builder didBuildAccessUnit:(TSAccessUnit* _Nonnull)accessUnit;
@@ -30,6 +26,7 @@
 
 @property(nonatomic, readonly) uint16_t pid;
 @property(nonatomic, readonly) TSStreamType streamType;
+@property(nonatomic, readonly) TSElementaryStreamStats * _Nonnull stats;
 
 -(instancetype _Nonnull)initWithDelegate:(id<TSElementaryStreamBuilderDelegate> _Nullable)delegate
                                      pid:(uint16_t)pid

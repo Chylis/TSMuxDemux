@@ -8,22 +8,8 @@
 
 #import "TSElementaryStreamBuilder.h"
 #import "TSPacket.h"
+#import "TSElementaryStreamStats.h"
 #import <CoreMedia/CoreMedia.h>
-
-@implementation TSContinuityCountError: NSObject
--(instancetype _Nonnull)initWithReceived:(uint8_t)receivedCC
-                                expected:(uint8_t)expectedCC
-                                 message:(NSString*)message
-{
-    self = [super init];
-    if (self) {
-        _receivedCC = receivedCC;
-        _expectedCC = expectedCC;
-        _message = message;
-    }
-    return self;
-}
-@end
 
 @interface TSElementaryStreamBuilder()
 
@@ -51,6 +37,7 @@
         _lastPacket = nil;
         _secondLastPacket = nil;
         _thirdLastPacket = nil;
+        _stats = [TSElementaryStreamStats new];
     }
     return self;
 }
@@ -63,14 +50,13 @@
     
     //NSLog(@"pid: %u, CC '%u'", self.pid, tsPacket.header.continuityCounter);
     
-    NSArray *ccResult = [self validateContinuityCounter:tsPacket
-                                             lastPacket:self.lastPacket
-                                       secondLastPacket:self.secondLastPacket
-                                        thirdLastPacket:self.thirdLastPacket];
-    
-    BOOL isDuplicatePacket = [ccResult[0] boolValue];
-    TSContinuityCountError *ccError = ccResult.count > 1 ? ccResult[1] : nil;
+    const BOOL isDuplicatePacket = tsPacket.header.continuityCounter == self.lastPacket.header.continuityCounter;
+    TSContinuityCountError *ccError = [self validateContinuityCounter:tsPacket
+                                                           lastPacket:self.lastPacket
+                                                     secondLastPacket:self.secondLastPacket
+                                                      thirdLastPacket:self.thirdLastPacket];
     if (ccError) {
+        [_stats.ccErrors addObject:ccError];
         [self.delegate streamBuilder:self didReceiveCCError:ccError];
     }
     
@@ -79,6 +65,7 @@
     [self setLastPacket:tsPacket];
     
     if (isDuplicatePacket) {
+        self.stats.discardedPacketCount++;
         return;
     }
     
@@ -106,7 +93,7 @@
 }
 
 
--(NSArray* _Nullable)validateContinuityCounter:(TSPacket*)currentPacket
+-(TSContinuityCountError* _Nullable)validateContinuityCounter:(TSPacket*)currentPacket
                                     lastPacket:(TSPacket*)lastPacket
                               secondLastPacket:(TSPacket*)secondLastPacket
                                thirdLastPacket:(TSPacket*)thirdLastPacket
@@ -169,7 +156,7 @@
         }
     }
     
-    return error ? @[@(isDuplicateCC), error] : @[@(isDuplicateCC)];
+    return error;
 }
 
 -(uint8_t)nextContinuityCounter:(uint8_t)currentContinuityCounter

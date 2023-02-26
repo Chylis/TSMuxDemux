@@ -81,6 +81,15 @@ typedef NSNumber *ElementaryStreamPid;
     [self.delegate demuxer:self didReceivePmt:pmt previousPmt:prevPmt];
 }
 
+-(NSDictionary<NSNumber*, TSElementaryStreamStats*>* _Nonnull)stats;
+{
+    NSMutableDictionary *map = [NSMutableDictionary new];
+    for (TSElementaryStreamBuilder *builder in self.streamBuilders) {
+        map[@(builder.pid)] = builder.stats;
+    }
+    return map;
+}
+
 -(void)demux:(NSData* _Nonnull)tsDataChunk
 {
     [self.tsDataChunks addObject:tsDataChunk];
