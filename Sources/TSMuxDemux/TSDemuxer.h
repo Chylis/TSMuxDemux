@@ -10,9 +10,8 @@
 #import "TSConstants.h"
 #import "TSAccessUnit.h"
 #import "TSProgramMapTable.h"
-#import "TSElementaryStreamStats.h"
+#import "TSTr101290Statistics.h"
 #import "TSProgramAssociationTable.h"
-
 @class TSDemuxer;
 
 
@@ -32,9 +31,9 @@
 -(instancetype _Nullable)initWithDelegate:(id<TSDemuxerDelegate> _Nullable)delegate;
 
 /// (Currently) not thread safe - i.e. make sure you call this from the same thread.
--(void)demux:(NSData* _Nonnull)tsDataChunk;
+/// Use [TSTimeUtils nowHostTimeNanos] to provide data arrival time.
+-(void)demux:(NSData* _Nonnull)tsDataChunk dataArrivalHostTimeNanos:(uint64_t)dataArrivalHostTimeNanos;
 
-// Key=pid
--(NSDictionary<NSNumber*, TSElementaryStreamStats*>* _Nonnull)statistics;
+-(TSTr101290Statistics* _Nonnull)statistics;
 
 @end

@@ -10,20 +10,23 @@
 #import "TSConstants.h"
 #import "TSElementaryStream.h"
 
+
 #pragma mark - TSPacketHeader
 
 @implementation TSPacketHeader
 
--(instancetype)initWithTei:(BOOL)tei
-                      pusi:(BOOL)pusi
-         transportPriority:(BOOL)transportPriority
-                       pid:(uint16_t)pid
-               isScrambled:(BOOL)isScrambled
-            adaptationMode:(TSAdaptationMode)adaptationMode
-         continuityCounter:(uint8_t)continuityCounter
+-(instancetype)initWithSyncByte:(uint8_t)syncByte
+                            tei:(BOOL)tei
+                           pusi:(BOOL)pusi
+              transportPriority:(BOOL)transportPriority
+                            pid:(uint16_t)pid
+                    isScrambled:(BOOL)isScrambled
+                 adaptationMode:(TSAdaptationMode)adaptationMode
+              continuityCounter:(uint8_t)continuityCounter
 {
     self = [super init];
     if (self) {
+        _syncByte = syncByte;
         _transportErrorIndicator = tei;
         _payloadUnitStartIndicator = pusi;
         _transportPriority = transportPriority;
@@ -45,10 +48,6 @@
     // Header byte 1:       Sync byte
     uint8_t byte1 = 0x00;
     [tsPacketData getBytes:&byte1 range:NSMakeRange(0, 1)];
-    if (byte1 != TS_PACKET_HEADER_SYNC_BYTE) {
-        NSLog(@"Failed parsing ts-header - invalid sync byte");
-        return nil;
-    }
     
     // Header byte 2:
     // bit 1:               tranport error indicator
@@ -76,13 +75,14 @@
     const TSAdaptationMode adaptationMode = ((byte4 & 0x30) >> 4);
     const uint8_t continuityCounter = byte4 & 0x0F;
     
-    TSPacketHeader *header = [[TSPacketHeader alloc] initWithTei:transportErrorIndicator
-                                                            pusi:payloadUnitStartIndicator
-                                               transportPriority:transportPriority
-                                                             pid:pid
-                                                     isScrambled:isScrambled
-                                                  adaptationMode:adaptationMode
-                                               continuityCounter:continuityCounter];
+    TSPacketHeader *header = [[TSPacketHeader alloc] initWithSyncByte:byte1
+                                                                  tei:transportErrorIndicator
+                                                                 pusi:payloadUnitStartIndicator
+                                                    transportPriority:transportPriority
+                                                                  pid:pid
+                                                          isScrambled:isScrambled
+                                                       adaptationMode:adaptationMode
+                                                    continuityCounter:continuityCounter];
     return header;
 }
 
@@ -91,7 +91,7 @@
     NSMutableData *data = [NSMutableData dataWithCapacity:TS_PACKET_HEADER_SIZE];
     
     // Header byte 1:       Sync byte
-    const uint8_t byte1 = TS_PACKET_HEADER_SYNC_BYTE;
+    const uint8_t byte1 = self.syncByte;
     [data appendBytes:&byte1 length:1];
     
     // Header byte 2:
@@ -437,13 +437,14 @@
         const NSUInteger packetPayloadSize = MIN(remainingSpaceInPacket, remainingPayloadLength);
         const NSUInteger payloadOffset = payload.length - remainingPayloadLength;
         
-        TSPacketHeader *header = [[TSPacketHeader alloc] initWithTei:NO
-                                                                pusi:isFirstPacket || forcePusi
-                                                   transportPriority:NO
-                                                                 pid:track.pid
-                                                         isScrambled:NO
-                                                      adaptationMode:adaptationField ? TSAdaptationModeAdaptationAndPayload : TSAdaptationModePayloadOnly
-                                                   continuityCounter:track.continuityCounter];
+        TSPacketHeader *header = [[TSPacketHeader alloc] initWithSyncByte:TS_PACKET_HEADER_SYNC_BYTE
+                                                                      tei:NO
+                                                                     pusi:isFirstPacket || forcePusi
+                                                        transportPriority:NO
+                                                                      pid:track.pid
+                                                              isScrambled:NO
+                                                           adaptationMode:adaptationField ? TSAdaptationModeAdaptationAndPayload : TSAdaptationModePayloadOnly
+                                                        continuityCounter:track.continuityCounter];
         if (packetPayloadSize > 0) {
             // The cc shall not be incremented when the adaptation_field_control of the packet equals '00' or '10'.
             track.continuityCounter = track.continuityCounter + 1;

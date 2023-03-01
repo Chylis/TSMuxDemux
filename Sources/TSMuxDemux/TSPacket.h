@@ -23,6 +23,7 @@ typedef NS_ENUM(uint8_t, TSAdaptationMode) {
 
 @interface TSPacketHeader : NSObject
 
+@property(nonatomic, readonly) uint8_t syncByte;
 @property(nonatomic, readonly) BOOL transportErrorIndicator;
 @property(nonatomic, readonly) BOOL payloadUnitStartIndicator;
 @property(nonatomic, readonly) BOOL transportPriority;
@@ -35,16 +36,17 @@ typedef NS_ENUM(uint8_t, TSAdaptationMode) {
 /// A 4-bit (per pid) packet counter.
 @property(nonatomic, readonly) uint8_t continuityCounter;
 
--(instancetype _Nonnull)initWithTei:(BOOL)tei
-                      pusi:(BOOL)pusi
-         transportPriority:(BOOL)transportPriority
-                       pid:(uint16_t)pid
-               isScrambled:(BOOL)isScrambled
-            adaptationMode:(TSAdaptationMode)adaptationMode
-         continuityCounter:(uint8_t)continuityCounter;
+-(instancetype _Nonnull)initWithSyncByte:(uint8_t)syncByte
+                                     tei:(BOOL)tei
+                                    pusi:(BOOL)pusi
+                       transportPriority:(BOOL)transportPriority
+                                     pid:(uint16_t)pid
+                             isScrambled:(BOOL)isScrambled
+                          adaptationMode:(TSAdaptationMode)adaptationMode
+                       continuityCounter:(uint8_t)continuityCounter;
 
 // Returns the byte representation of the TSPacketHeader.
--(NSData* _Nonnull)getBytes;
+//-(NSData* _Nonnull)getBytes;
 
 @end
 
