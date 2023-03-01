@@ -18,11 +18,11 @@ uint8_t const TS_PACKET_MAX_PAYLOAD_SIZE = TS_PACKET_SIZE - TS_PACKET_HEADER_SIZ
 NSUInteger const TABLE_ID_PAT = 0x00;
 NSUInteger const TABLE_ID_PMT = 0x02;
 
-NSUInteger const PID_PAT = 0x00;
-NSUInteger const PID_CAT = 0x01;
-NSUInteger const PID_TSDT = 0x02;
-NSUInteger const PID_IPMP = 0x03;
-NSUInteger const PID_ASI = 0x04;
+NSUInteger const PID_PAT = 0x00; // Program association table
+NSUInteger const PID_CAT = 0x01; // Conditional access table
+NSUInteger const PID_TSDT = 0x02; // Transport stream description table
+NSUInteger const PID_IPMP = 0x03; // IPMP control information table
+NSUInteger const PID_ASI = 0x04; // Adaptive streaming information
 
 NSUInteger const PID_OTHER_START_INDEX = 0x10;
 NSUInteger const PID_NIT_ST = 0x10;
