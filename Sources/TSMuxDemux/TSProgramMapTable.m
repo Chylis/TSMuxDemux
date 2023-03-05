@@ -114,40 +114,58 @@
     if (self) {
         _psi = psi;
         
+        NSUInteger offset = 0;
+        
         uint16_t bytes1And2 = 0x0;
-        [psi.sectionData getBytes:&bytes1And2 range:NSMakeRange(0, 2)];
+        [psi.sectionData getBytes:&bytes1And2 range:NSMakeRange(offset, 2)];
+        offset += 2;
         _pcrPid = CFSwapInt16BigToHost(bytes1And2) & (uint16_t)0x1FFF;
         
         uint16_t bytes3And4 = 0x0;
-        [psi.sectionData getBytes:&bytes3And4 range:NSMakeRange(2, 2)];
+        [psi.sectionData getBytes:&bytes3And4 range:NSMakeRange(offset, 2)];
+        offset +=2;
+        // programInfoLength specifies the number of bytes of the descriptors immediately following the program_info_length field.
         _programInfoLength = CFSwapInt16BigToHost(bytes3And4) & (uint16_t)0x3FF;
         
-        NSUInteger esOffset = 2 + 2 + self.programInfoLength; // 2 + 2 = pcrPid and programInfoLength fields respectively
-        NSUInteger elementalStreamsRemainingLength = psi.sectionData.length - esOffset;
-        const NSUInteger numberOfStreams = elementalStreamsRemainingLength / ELEMENTARY_STREAM_BYTE_LENGTH;
+        NSUInteger descriptorsRemainingLength = _programInfoLength;
+        while (descriptorsRemainingLength > 0) {
+            uint8_t descriptorTag = 0x0;
+            [psi.sectionData getBytes:&descriptorTag range:NSMakeRange(offset, 1)];
+            offset++;
+            descriptorsRemainingLength--;
+            
+            // descriptorLength specifies the number of bytes of the descriptor immediately following the descriptor_length field.
+            uint8_t descriptorLength = 0x0;
+            [psi.sectionData getBytes:&descriptorLength range:NSMakeRange(offset, 1)];
+            offset++;
+            descriptorsRemainingLength--;
+            
+            // Skip remaining fields...
+            offset += descriptorLength;
+            descriptorsRemainingLength -= descriptorLength;
+        }
         
         NSMutableSet *streams = [NSMutableSet set];
-        while (elementalStreamsRemainingLength > 0) {
+        while (offset < psi.sectionData.length) {
             uint8_t esByte1 = 0x0;
-            [psi.sectionData getBytes:&esByte1 range:NSMakeRange(esOffset, 1)];
+            [psi.sectionData getBytes:&esByte1 range:NSMakeRange(offset, 1)];
+            offset++;
             const uint8_t esStreamType = esByte1;
-            esOffset++;
             
             uint16_t esBytes2And3 = 0x0;
-            [psi.sectionData getBytes:&esBytes2And3 range:NSMakeRange(esOffset, 2)];
+            [psi.sectionData getBytes:&esBytes2And3 range:NSMakeRange(offset, 2)];
+            offset +=2;
             const uint16_t esPid = CFSwapInt16BigToHost(esBytes2And3) & (uint16_t)0x1FFF;
-            esOffset += 2;
             
             uint16_t esBytes4And5 = 0x0;
-            [psi.sectionData getBytes:&esBytes4And5 range:NSMakeRange(esOffset, 2)];
+            [psi.sectionData getBytes:&esBytes4And5 range:NSMakeRange(offset, 2)];
+            offset +=2;
+            // esInfoLength specifies the number of bytes of the descriptors of the associated program element immediately following the ES_info_length field.
             const uint16_t esInfoLength = CFSwapInt16BigToHost(esBytes4And5) & (uint16_t)0x3FF;
-            esOffset += 2;
             
             // TODO: Parse elemental stream descriptor...
-            esOffset += esInfoLength;
+            offset += esInfoLength;
             
-            // 5 fixed bytes + 'esInfoLength' for each elementary stream section in PMT
-            elementalStreamsRemainingLength -= ELEMENTARY_STREAM_BYTE_LENGTH - esInfoLength;
             
             TSElementaryStream *stream = [[TSElementaryStream alloc] initWithPid:esPid streamType:esStreamType];
             [streams addObject:stream];

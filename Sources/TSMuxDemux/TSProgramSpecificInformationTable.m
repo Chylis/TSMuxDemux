@@ -135,7 +135,7 @@
     [packet.payload getBytes:&byte8 range:NSMakeRange(7 + sectionOffset, 1)];
     const uint8_t lastSection = byte8;
     
-    NSUInteger tableSectionLength = sectionLength - (5 + 4);
+    NSUInteger tableSectionLength = sectionLength - (5 + 4); // 5=num bytes read after sectionLength. 4 = CRC length
     uint8_t sectionData[tableSectionLength];
     [packet.payload getBytes:sectionData range:NSMakeRange(9, tableSectionLength)];
     
