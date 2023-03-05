@@ -56,5 +56,6 @@ FOUNDATION_EXPORT NSUInteger const PROGRAM_NUMBER_NETWORK_INFO;
 
 @interface PidUtil : NSObject
 +(BOOL)isCustomPidInvalid:(uint16_t)pid;
++(BOOL)isReservedPid:(uint16_t)pid;
 +(NSArray<NSNumber*>* _Nonnull)reservedPids;
 @end

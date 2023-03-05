@@ -52,7 +52,12 @@ NSUInteger const PROGRAM_NUMBER_NETWORK_INFO = 0x00;
 
 +(BOOL)isCustomPidInvalid:(uint16_t)pid
 {
-    return [[PidUtil reservedPids] containsObject:@(pid)] || pid < PID_OTHER_START_INDEX || pid > PID_OTHER_END_INDEX;
+    return [PidUtil isReservedPid:pid] || pid < PID_OTHER_START_INDEX || pid > PID_OTHER_END_INDEX;
+}
+
++(BOOL)isReservedPid:(uint16_t)pid
+{
+    return [[PidUtil reservedPids] containsObject:@(pid)];
 }
 
 +(NSArray<NSNumber*>*)reservedPids

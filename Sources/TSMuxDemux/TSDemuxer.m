@@ -126,7 +126,7 @@ typedef NSNumber *ElementaryStreamPid;
                 } else {
                     pmt = [[TSProgramMapTable alloc] initWithTsPacket:tsPacket];
                 }
-            } else {
+            } else if (![PidUtil isReservedPid:pid]){
                 isPes = YES;
             }
         }
