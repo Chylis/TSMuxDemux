@@ -1,1 +1,4 @@
-
+module TSMuxDemux {
+    header "../TSMuxDemux-Bridging-Header.h"
+    export *
+  }
