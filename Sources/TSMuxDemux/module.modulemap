@@ -1,4 +1,6 @@
 module TSMuxDemux {
-umbrella "./TSMuxDemux-Bridging-Header.h"
+umbrella "TSMuxDemux"
+  explicit module * {
     export *
+  }
 }
