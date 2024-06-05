@@ -1,1 +1,4 @@
-
+module TSMuxDemux {
+umbrella "TSMuxDemux-Bridging-Header.h"
+    export *
+}
