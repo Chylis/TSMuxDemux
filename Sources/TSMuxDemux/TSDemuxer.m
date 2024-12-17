@@ -61,14 +61,20 @@ typedef NSNumber *ElementaryStreamPid;
     if ([pmt isEqual:prevPmt]) {
         return;
     }
+
+    // Mark all pids in prev PMT for removal
+    NSMutableSet *pidsToRemove = [NSMutableSet set];
+    [prevPmt.elementaryStreams enumerateObjectsUsingBlock:^(TSElementaryStream *es, BOOL *stop) {
+        [pidsToRemove addObject:@(es.pid)];
+    }];
     
-    NSMutableSet *pidsToRemove = [NSMutableSet setWithArray:self.streamBuilders.allKeys];
     for (TSElementaryStream *stream in pmt.elementaryStreams) {
+        // Keep pid if still present in new PMT
         [pidsToRemove removeObject:@(stream.pid)];
         
-        // Add builders for new pids
         TSElementaryStreamBuilder *builder = [self.streamBuilders objectForKey:@(stream.pid)];
         if (!builder) {
+            // Add builders for new pids
             builder = [[TSElementaryStreamBuilder alloc] initWithDelegate:self
                                                                       pid:stream.pid
                                                                streamType:stream.streamType];
@@ -77,8 +83,10 @@ typedef NSNumber *ElementaryStreamPid;
     }
     
     // Remove builders for no longer existing pids
-    [self.streamBuilders removeObjectsForKeys:pidsToRemove.allObjects];
-    
+    if (pidsToRemove.count > 0) {
+        [self.streamBuilders removeObjectsForKeys:pidsToRemove.allObjects];
+    }
+
     _pmts[programNumber] = pmt;
     [self.delegate demuxer:self didReceivePmt:pmt previousPmt:prevPmt];
 }
@@ -98,6 +106,8 @@ typedef NSNumber *ElementaryStreamPid;
         TSProgramAssociationTable *pat = nil;
         
         uint16_t pid = tsPacket.header.pid;
+        NSLog(@"Received pid '%u'", pid);
+
         if (pid == PID_PAT) {
             pat = [[TSProgramAssociationTable alloc] initWithTsPacket:tsPacket];
         } else if (pid == PID_CAT) {
