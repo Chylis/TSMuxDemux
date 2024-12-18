@@ -23,13 +23,15 @@
 
 -(instancetype _Nonnull)initWithDelegate:(id<TSElementaryStreamBuilderDelegate>)delegate
                                      pid:(uint16_t)pid
-                              streamType:(TSStreamType)streamType;
+                              streamType:(TSStreamType)streamType
+                           descriptorTag:(TSDescriptorTag)descriptorTag
 {
     self = [super init];
     if (self) {
         _delegate = delegate;
         _pid = pid;
         _streamType = streamType;
+        _descriptorTag = descriptorTag;
         _lastPacket = nil;
     }
     return self;
@@ -56,12 +58,16 @@
                                                                      pts:self.pts
                                                                      dts:self.dts
                                                               streamType:self.streamType
+                                                           descriptorTag:self.descriptorTag
                                                           compressedData:self.collectedData];
             [self.delegate streamBuilder:self didBuildAccessUnit:accessUnit];
         }
         
         // Parse PES header
-        TSAccessUnit *firstAccessUnit = [TSAccessUnit initWithTsPacket:tsPacket pid:self.pid streamType:self.streamType];
+        TSAccessUnit *firstAccessUnit = [TSAccessUnit initWithTsPacket:tsPacket
+                                                                   pid:self.pid
+                                                            streamType:self.streamType
+                                                         descriptorTag:self.descriptorTag];
         self.pts = firstAccessUnit.pts;
         self.dts = firstAccessUnit.dts;
         self.collectedData = [NSMutableData dataWithData:firstAccessUnit.compressedData];

@@ -77,7 +77,8 @@ typedef NSNumber *ElementaryStreamPid;
             // Add builders for new pids
             builder = [[TSElementaryStreamBuilder alloc] initWithDelegate:self
                                                                       pid:stream.pid
-                                                               streamType:stream.streamType];
+                                                               streamType:stream.streamType
+                                                            descriptorTag:stream.descriptorTag];
             [self.streamBuilders setObject:builder forKey:@(stream.pid)];
         }
     }
@@ -96,6 +97,16 @@ typedef NSNumber *ElementaryStreamPid;
     return self.tsPacketAnalyzer.stats;
 }
 
+-(TSProgramMapTable* _Nullable)pmtForPid:(uint16_t)pid
+{
+    for (TSProgramMapTable *pmt in [_pmts allValues]) {
+        if ([pmt elementaryStreamWithPid:pid]) {
+            return pmt;
+        }
+    }
+    return nil;
+}
+
 
 -(void)demux:(NSData* _Nonnull)chunk dataArrivalHostTimeNanos:(uint64_t)dataArrivalHostTimeNanos
 {
@@ -106,7 +117,7 @@ typedef NSNumber *ElementaryStreamPid;
         TSProgramAssociationTable *pat = nil;
         
         uint16_t pid = tsPacket.header.pid;
-        NSLog(@"Received pid '%u'", pid);
+        //NSLog(@"Received pid '%u'", pid);
 
         if (pid == PID_PAT) {
             pat = [[TSProgramAssociationTable alloc] initWithTsPacket:tsPacket];

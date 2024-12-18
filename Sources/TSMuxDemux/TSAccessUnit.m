@@ -21,7 +21,8 @@ static const uint8_t TIMESTAMP_LENGTH = 5; // A timestamp (pts/dts) is a 33-bit 
                                 pts:(CMTime)pts
                                 dts:(CMTime)dts
                          streamType:(TSStreamType)streamType
-                     compressedData:(NSData* _Nonnull)compressedData
+                      descriptorTag:(TSDescriptorTag)descriptorTag
+                     compressedData:(NSData * _Nonnull)compressedData
 {
     self = [super init];
     if (self) {
@@ -29,6 +30,7 @@ static const uint8_t TIMESTAMP_LENGTH = 5; // A timestamp (pts/dts) is a 33-bit 
         _pts = pts;
         _dts = dts;
         _streamType = streamType;
+        _descriptorTag = descriptorTag;
         _compressedData = compressedData;
     }
     return self;
@@ -37,20 +39,21 @@ static const uint8_t TIMESTAMP_LENGTH = 5; // A timestamp (pts/dts) is a 33-bit 
 +(instancetype _Nullable)initWithTsPacket:(TSPacket* _Nonnull)packet
                                       pid:(uint16_t)pid
                                streamType:(TSStreamType)streamType
+                            descriptorTag:(TSDescriptorTag)descriptorTag
 {
     
     uint32_t bytes1To4 = 0x00;
     [packet.payload getBytes:&bytes1To4 range:NSMakeRange(0, 4)];
     const uint8_t streamId = CFSwapInt32BigToHost(bytes1To4) & (uint32_t)0xFF;
     const uint32_t startCode = (CFSwapInt32BigToHost(bytes1To4) & 0xFFFFFF00) >> 8;
-    NSAssert(startCode == 0x01, @"Invalid PES header startcode");
-
-//    uint16_t bytes5And6 = 0x00;
-//    [packet.payload getBytes:&bytes5And6 range:NSMakeRange(4, 2)];
-//    const uint16_t pesPacketLength = CFSwapInt16BigToHost(bytes5And6);
+    // FIXME MG: NSAssert(startCode == 0x01, @"Invalid PES header startcode");
     
-     // TODO: Parse byte7/flags1 and add properties accordingly
-
+    //    uint16_t bytes5And6 = 0x00;
+    //    [packet.payload getBytes:&bytes5And6 range:NSMakeRange(4, 2)];
+    //    const uint16_t pesPacketLength = CFSwapInt16BigToHost(bytes5And6);
+    
+    // TODO: Parse byte7/flags1 and add properties accordingly
+    
     uint8_t byte8 = 0x00;
     [packet.payload getBytes:&byte8 range:NSMakeRange(7, 1)];
     const BOOL hasPts = (byte8 & 0x80) != 0x00;
@@ -93,6 +96,7 @@ static const uint8_t TIMESTAMP_LENGTH = 5; // A timestamp (pts/dts) is a 33-bit 
                                          pts:pts == 0 ? kCMTimeInvalid : CMTimeMake(pts, TS_TIMESTAMP_TIMESCALE)
                                          dts:dts == 0 ? kCMTimeInvalid : CMTimeMake(dts, TS_TIMESTAMP_TIMESCALE)
                                   streamType:streamType
+                               descriptorTag:descriptorTag
                               compressedData:data];
 }
 
@@ -206,39 +210,98 @@ static const uint8_t TIMESTAMP_LENGTH = 5; // A timestamp (pts/dts) is a 33-bit 
     return packet;
 }
 
+
+-(BOOL)isAudioStreamType
+{
+    return [TSAccessUnit isAudioStreamType:self.streamType descriptorTag:self.descriptorTag];
+}
++(BOOL)isAudioStreamType:(TSStreamType)streamType descriptorTag:(TSDescriptorTag)descriptorTag
+{
+    switch (streamType) {
+        case TSStreamTypeH264:      return NO;
+        case TSStreamTypeH265:      return NO;
+        case TSStreamTypeADTSAAC:   return YES;
+        case TSStreamTypePrivateData: return [TSAccessUnit isAudioDescriptorTag:descriptorTag];
+    }
+    return NO;
+}
+
++(BOOL)isAudioDescriptorTag:(TSDescriptorTag)descriptorTag
+{
+    switch (descriptorTag) {
+        case TSDescriptorTagUnknown: return NO;
+        case TSDescriptorTagVideoStream: return NO;
+        case TSDescriptorTagAudioStream: return YES;
+        case TSDescriptorTagRegistration: return NO; // FIXME MG: Parse and read format_identifier
+        case TSDescriptorTagISO639Language: return NO;
+        case TSDescriptorTagMaximumBitrate: return NO;
+        case TSDescriptorTagStreamIdentifier: return NO;
+        case TSDescriptorTagTeletext: return NO;
+        case TSDescriptorTagAc3: return YES;
+        case TSDescriptorTagEnhancedAc3: return YES;
+        case TSDescriptorTagAac: return YES;
+            // FIXME MG: 0x7F indicates an extension_descriptor, i.e you need to check the next byte (descriptor_tag_extension). Could be AC4
+        case TSDescriptorTagExtension: return NO;
+    }
+    return NO;
+}
+
+
 -(BOOL)isVideoStreamType
 {
     return [TSAccessUnit isVideoStreamType:self.streamType];
 }
-
--(uint8_t)streamId
-{
-    return [TSAccessUnit streamIdFromStreamType:self.streamType];
-}
-
 +(BOOL)isVideoStreamType:(TSStreamType)streamType
 {
     switch (streamType) {
         case TSStreamTypeH264:      return YES;
         case TSStreamTypeH265:      return YES;
         case TSStreamTypeADTSAAC:   return NO;
+        case TSStreamTypePrivateData: return NO;
     }
     return NO;
 }
 
-+(NSString*)streamTypeDescription:(TSStreamType)streamType
+
+-(NSString*)streamTypeDescription
+{
+    return [TSAccessUnit streamTypeDescription:self.streamType descriptorTag:self.descriptorTag];
+}
++(NSString*)streamTypeDescription:(TSStreamType)streamType descriptorTag:(TSDescriptorTag)descriptorTag
 {
     switch (streamType) {
         case TSStreamTypeADTSAAC:
             return @"ADTS AAC";
-
         case TSStreamTypeH264:
             return @"H264";
-
         case TSStreamTypeH265:
             return @"H265";
+        case TSStreamTypePrivateData:
+            return [NSString stringWithFormat:@"Private: '%@'", [TSAccessUnit descriptorTagDescription:descriptorTag]];
     }
+    
     return [NSString stringWithFormat:@"Unknown '0x%02x'", streamType];
+}
+
++(NSString*)descriptorTagDescription:(TSDescriptorTag)descriptorTag
+{
+    switch (descriptorTag) {
+        case TSDescriptorTagUnknown: return @"Unknown";
+        case TSDescriptorTagVideoStream: return @"Video";
+        case TSDescriptorTagAudioStream: return @"Audio";
+            // FIXME MG: Parse and read format_identifier
+        case TSDescriptorTagRegistration: return @"Registration";
+        case TSDescriptorTagISO639Language: return @"ISO639Language";
+        case TSDescriptorTagMaximumBitrate: return @"Maximum bitrate";
+        case TSDescriptorTagStreamIdentifier: return @"Stream Identifier";
+        case TSDescriptorTagTeletext: return @"Telextext";
+        case TSDescriptorTagAc3: return @"AC3";
+        case TSDescriptorTagEnhancedAc3: return @"EAC3";
+        case TSDescriptorTagAac: return @"AAC";
+            // FIXME MG: 0x7F indicate an extension_descriptor, i.e you need to check the next byte (descriptor_tag_extension). Could be AC4
+        case TSDescriptorTagExtension: return @"Extension";
+    }
+    return [NSString stringWithFormat:@"Unknown '0x%02x'", descriptorTag];
 }
 
 /// The stream_id may be set to any valid value which correctly describes the elementary stream type as defined in Table 2-22.
@@ -260,7 +323,16 @@ static const uint8_t TIMESTAMP_LENGTH = 5; // A timestamp (pts/dts) is a 33-bit 
         case TSStreamTypeH265:
             // FIXME: What stream type to use for HEVC?
             return 0xE0;
+            
+        case TSStreamTypePrivateData:
+            // FIXME MG: Return correct streamId when muxing stream type PrivateData here... 
+            return 0x00;
     }
+}
+
+-(uint8_t)streamId
+{
+    [TSAccessUnit streamIdFromStreamType:self.streamType];
 }
 
 @end

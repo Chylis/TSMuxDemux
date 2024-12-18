@@ -30,6 +30,8 @@
 
 -(instancetype _Nullable)initWithDelegate:(id<TSDemuxerDelegate> _Nullable)delegate;
 
+-(TSProgramMapTable* _Nullable)pmtForPid:(uint16_t)pid;
+
 /// (Currently) not thread safe - i.e. make sure you call this from the same thread.
 /// Use [TSTimeUtils nowHostTimeNanos] to provide data arrival time.
 -(void)demux:(NSData* _Nonnull)tsDataChunk dataArrivalHostTimeNanos:(uint64_t)dataArrivalHostTimeNanos;

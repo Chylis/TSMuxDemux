@@ -91,10 +91,14 @@
         
         const uint8_t streamTypeNotApplicable = 0;
         _pat = [[TSProgramAssociationTable alloc] initWithTransportStreamId:0 programmes:@{ @(PROGRAM_NUMBER): @(_settings.pmtPid)}];
-        _patTrack = [[TSElementaryStream alloc] initWithPid:PID_PAT streamType:streamTypeNotApplicable];
+        _patTrack = [[TSElementaryStream alloc] initWithPid:PID_PAT
+                                                 streamType:streamTypeNotApplicable
+                                              descriptorTag:TSDescriptorTagUnknown];
         
         _pmt = [[TSProgramMapTable alloc] initWithProgramNumber:PROGRAM_NUMBER pcrPid:0 elementaryStreams:[NSSet set]];
-        _pmtTrack = [[TSElementaryStream alloc] initWithPid:settings.pmtPid streamType:streamTypeNotApplicable];
+        _pmtTrack = [[TSElementaryStream alloc] initWithPid:settings.pmtPid
+                                                 streamType:streamTypeNotApplicable
+                                              descriptorTag:TSDescriptorTagUnknown];
         
         _accessUnits = [NSMutableArray array];
     }
@@ -125,9 +129,12 @@
     
     TSElementaryStream *track = [self.pmt elementaryStreamWithPid:accessUnit.pid];
     if (!track) {
-        track = [[TSElementaryStream alloc] initWithPid:accessUnit.pid streamType:accessUnit.streamType];
+        track = [[TSElementaryStream alloc] initWithPid:accessUnit.pid
+                                             streamType:accessUnit.streamType
+                                          descriptorTag:accessUnit.descriptorTag];
         [self.pmt addElementaryStream:track];
     }
+    
     [self.accessUnits addObject:accessUnit];
     
     [self doMux];
