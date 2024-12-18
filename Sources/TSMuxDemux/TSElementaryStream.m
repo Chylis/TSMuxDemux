@@ -13,12 +13,14 @@
 @implementation TSElementaryStream
 
 -(instancetype)initWithPid:(uint16_t)pid
-                streamType:(TSStreamType)streamType;
+                streamType:(TSStreamType)streamType
+             descriptorTag:(TSDescriptorTag)descriptorTag
 {
     self = [super init];
     if (self) {
         _pid = pid;
         _streamType = streamType;
+        _descriptorTag = descriptorTag;
         _continuityCounter = 0;
     }
     return self;
@@ -44,12 +46,22 @@
 
 -(BOOL)isEqualToElementaryStream:(TSElementaryStream*)es
 {
-    return self.pid == es.pid && self.streamType == es.streamType;
+    return self.pid == es.pid && self.streamType == es.streamType && self.descriptorTag == es.descriptorTag;
 }
 
 -(NSUInteger)hash
 {
     return [@(self.pid) hash];
 }
+
+-(BOOL)isAudioStreamType
+{
+    return [TSAccessUnit isAudioStreamType:self.streamType descriptorTag:self.descriptorTag];
+}
+-(BOOL)isVideoStreamType
+{
+    return [TSAccessUnit isVideoStreamType:self.streamType];
+}
+
 
 @end

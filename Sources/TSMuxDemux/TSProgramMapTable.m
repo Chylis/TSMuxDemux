@@ -162,12 +162,31 @@
             offset +=2;
             // esInfoLength specifies the number of bytes of the descriptors of the associated program element immediately following the ES_info_length field.
             const uint16_t esInfoLength = CFSwapInt16BigToHost(esBytes4And5) & (uint16_t)0x3FF;
+            NSUInteger esInfoRemainingLength = esInfoLength;
+
+            TSDescriptorTag esDescriptorTag = TSDescriptorTagUnknown;
+            while (esInfoRemainingLength > 0) {
+                uint8_t byte1 = 0x0;
+                [psi.sectionData getBytes:&byte1 range:NSMakeRange(offset, 1)];
+                offset++;
+                esInfoRemainingLength--;
+                esDescriptorTag = byte1;
+                
+                // descriptorLength specifies the number of bytes of the descriptor immediately following the descriptor_length field.
+                uint8_t descriptorLength = 0x0;
+                [psi.sectionData getBytes:&descriptorLength range:NSMakeRange(offset, 1)];
+                offset++;
+                esInfoRemainingLength--;
+                
+                // Skip remaining fields...
+                // TODO: Parse elemental stream descriptors...
+                offset += descriptorLength;
+                esInfoRemainingLength -= descriptorLength;
+            }
             
-            // TODO: Parse elemental stream descriptor...
-            offset += esInfoLength;
-            
-            
-            TSElementaryStream *stream = [[TSElementaryStream alloc] initWithPid:esPid streamType:esStreamType];
+            TSElementaryStream *stream = [[TSElementaryStream alloc] initWithPid:esPid
+                                                                      streamType:esStreamType
+                                                                   descriptorTag:esDescriptorTag];
             [streams addObject:stream];
         }
         _elementaryStreams = streams;
