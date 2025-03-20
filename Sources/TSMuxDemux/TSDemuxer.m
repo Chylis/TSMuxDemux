@@ -123,7 +123,7 @@ typedef NSNumber *ElementaryStreamPid;
             pat = [[TSProgramAssociationTable alloc] initWithTsPacket:tsPacket];
         } else if (pid == PID_CAT) {
             // TODO Parse...
-            NSLog(@"Received CAT");
+            // NSLog(@"Received CAT");
         } else if (pid == PID_TSDT) {
             // TODO Parse...
             NSLog(@"Received TSDT");
