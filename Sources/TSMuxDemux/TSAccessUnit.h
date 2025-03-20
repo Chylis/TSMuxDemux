@@ -53,6 +53,9 @@ typedef NS_ENUM(uint8_t, TSExtensionDescriptorTag) {
 /// Set to kCMTimeInvalid to represent "No DTS".
 @property(nonatomic, readonly) CMTime dts;
 
+/// Set to true if the ts packet is flagged as discontinuous. Should be used as a hint to e.g. reset PTS-anchors etc.
+@property(nonatomic, readonly) BOOL isDiscontinuous;
+
 @property(nonatomic, readonly) TSStreamType streamType;
 @property(nonatomic, readonly) TSDescriptorTag descriptorTag;
 
@@ -61,6 +64,7 @@ typedef NS_ENUM(uint8_t, TSExtensionDescriptorTag) {
 -(instancetype _Nonnull)initWithPid:(uint16_t)pid
                                 pts:(CMTime)pts
                                 dts:(CMTime)dts
+                    isDiscontinuous:(BOOL)isDiscontinuous
                          streamType:(TSStreamType)streamType
                          descriptorTag:(TSDescriptorTag)descriptorTag
                      compressedData:(NSData* _Nonnull)compressedData;

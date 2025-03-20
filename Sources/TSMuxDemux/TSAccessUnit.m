@@ -20,6 +20,7 @@ static const uint8_t TIMESTAMP_LENGTH = 5; // A timestamp (pts/dts) is a 33-bit 
 -(instancetype _Nonnull)initWithPid:(uint16_t)pid
                                 pts:(CMTime)pts
                                 dts:(CMTime)dts
+                    isDiscontinuous:(BOOL)isDiscontinuous
                          streamType:(TSStreamType)streamType
                       descriptorTag:(TSDescriptorTag)descriptorTag
                      compressedData:(NSData * _Nonnull)compressedData
@@ -29,6 +30,7 @@ static const uint8_t TIMESTAMP_LENGTH = 5; // A timestamp (pts/dts) is a 33-bit 
         _pid = pid;
         _pts = pts;
         _dts = dts;
+        _isDiscontinuous = isDiscontinuous;
         _streamType = streamType;
         _descriptorTag = descriptorTag;
         _compressedData = compressedData;
@@ -95,6 +97,7 @@ static const uint8_t TIMESTAMP_LENGTH = 5; // A timestamp (pts/dts) is a 33-bit 
     return [[TSAccessUnit alloc] initWithPid:pid
                                          pts:pts == 0 ? kCMTimeInvalid : CMTimeMake(pts, TS_TIMESTAMP_TIMESCALE)
                                          dts:dts == 0 ? kCMTimeInvalid : CMTimeMake(dts, TS_TIMESTAMP_TIMESCALE)
+                             isDiscontinuous:packet.adaptationField.discontinuityFlag
                                   streamType:streamType
                                descriptorTag:descriptorTag
                               compressedData:data];

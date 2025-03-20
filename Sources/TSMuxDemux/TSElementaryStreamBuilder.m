@@ -14,6 +14,7 @@
 
 @property(nonatomic) CMTime pts;
 @property(nonatomic) CMTime dts;
+@property(nonatomic) BOOL isDiscontinuous;
 @property(nonatomic, strong) NSMutableData *collectedData;
 @property(nonatomic, strong) TSPacket *lastPacket;
 
@@ -44,7 +45,8 @@
     NSAssert(tsPacket.header.pid == self.pid, @"PID mismatch");
     //NSLog(@"pid: %u, CC '%u', adaptation: %u", self.pid, tsPacket.header.continuityCounter, tsPacket.header.adaptationMode);
     
-    BOOL isDuplicateCC = tsPacket.header.continuityCounter == self.lastPacket.header.continuityCounter;
+    BOOL isDuplicateCC = tsPacket.header.continuityCounter == self.lastPacket.header.continuityCounter && !tsPacket.adaptationField.discontinuityFlag;
+    
     [self setLastPacket:tsPacket];
     
     if (isDuplicateCC) {
@@ -57,6 +59,7 @@
             TSAccessUnit *accessUnit = [[TSAccessUnit alloc] initWithPid:self.pid
                                                                      pts:self.pts
                                                                      dts:self.dts
+                                                         isDiscontinuous:self.isDiscontinuous
                                                               streamType:self.streamType
                                                            descriptorTag:self.descriptorTag
                                                           compressedData:self.collectedData];
@@ -70,6 +73,7 @@
                                                          descriptorTag:self.descriptorTag];
         self.pts = firstAccessUnit.pts;
         self.dts = firstAccessUnit.dts;
+        self.isDiscontinuous = firstAccessUnit.isDiscontinuous;
         self.collectedData = [NSMutableData dataWithData:firstAccessUnit.compressedData];
     } else {
         if (tsPacket.payload.length > 0) {
