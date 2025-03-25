@@ -41,7 +41,8 @@
 #pragma mark Muxer
 
 -(instancetype _Nonnull)initWithTableId:(uint8_t)tableId
-                              byte4And5:(uint16_t)byte4And5;
+                              byte4And5:(uint16_t)byte4And5
+                          versionNumber:(uint8_t)versionNumber;
 
 -(NSData* _Nonnull)toTsPacketPayload:(NSData* _Nonnull)sectionData;
 

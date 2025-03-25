@@ -20,7 +20,10 @@
 {
     self = [super init];
     if (self) {
-        _psi = [[TSProgramSpecificInformationTable alloc] initWithTableId:TABLE_ID_PAT byte4And5:transportStreamId];
+        _psi = [[TSProgramSpecificInformationTable alloc]
+                initWithTableId:TABLE_ID_PAT
+                byte4And5:transportStreamId
+                versionNumber:0];
         _programmes = programmes;
     }
     return self;

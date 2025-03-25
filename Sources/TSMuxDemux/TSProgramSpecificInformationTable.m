@@ -16,6 +16,7 @@
 
 -(instancetype _Nonnull)initWithTableId:(uint8_t)tableId
                               byte4And5:(uint16_t)byte4And5
+                          versionNumber:(uint8_t)versionNumber
 {
     return [self initWithTableId:tableId
           sectionSyntaxIndicator:PSI_SECTION_SYNTAX_INDICATOR
@@ -24,7 +25,7 @@
                    sectionLength:0
                        byte4And5:byte4And5
                    reservedBits3:PSI_RESERVED_BITS
-                   versionNumber:0
+                   versionNumber:versionNumber
             currentNextIndicator:YES
                    sectionNumber:0
                lastSectionNumber:0

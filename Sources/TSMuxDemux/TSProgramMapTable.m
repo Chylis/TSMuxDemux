@@ -16,6 +16,7 @@
 #pragma mark - Muxer
 
 -(instancetype _Nullable)initWithProgramNumber:(uint16_t)programNumber
+                                 versionNumber:(uint8_t)versionNumber
                                         pcrPid:(uint16_t)pcrPid
                              elementaryStreams:(NSSet<TSElementaryStream*>* _Nonnull)elementaryStreams
 {
@@ -25,7 +26,9 @@
         _pcrPid = pcrPid;
         _programInfoLength = 0;
         _elementaryStreams = elementaryStreams;
-        _psi = [[TSProgramSpecificInformationTable alloc] initWithTableId:TABLE_ID_PMT byte4And5:programNumber];
+        _psi = [[TSProgramSpecificInformationTable alloc] initWithTableId:TABLE_ID_PMT
+                                                                byte4And5:programNumber
+                                                            versionNumber:versionNumber];
     }
     return self;
 }
@@ -115,7 +118,6 @@
         _psi = psi;
         
         NSUInteger offset = 0;
-        
         uint16_t bytes1And2 = 0x0;
         [psi.sectionData getBytes:&bytes1And2 range:NSMakeRange(offset, 2)];
         offset += 2;
@@ -164,7 +166,7 @@
             const uint16_t esInfoLength = CFSwapInt16BigToHost(esBytes4And5) & (uint16_t)0x3FF;
             NSUInteger esInfoRemainingLength = esInfoLength;
 
-            TSDescriptorTag esDescriptorTag = TSDescriptorTagUnknown;
+            uint8_t esDescriptorTag = 0;
             while (esInfoRemainingLength > 0) {
                 uint8_t byte1 = 0x0;
                 [psi.sectionData getBytes:&byte1 range:NSMakeRange(offset, 1)];
@@ -177,13 +179,13 @@
                 [psi.sectionData getBytes:&descriptorLength range:NSMakeRange(offset, 1)];
                 offset++;
                 esInfoRemainingLength--;
-                
+
                 // Skip remaining fields...
                 // TODO: Parse elemental stream descriptors...
                 offset += descriptorLength;
                 esInfoRemainingLength -= descriptorLength;
             }
-            
+
             TSElementaryStream *stream = [[TSElementaryStream alloc] initWithPid:esPid
                                                                       streamType:esStreamType
                                                                    descriptorTag:esDescriptorTag];
@@ -199,6 +201,11 @@
 -(uint16_t)programNumber
 {
     return self.psi.byte4And5;
+}
+
+-(uint8_t)versionNumber
+{
+    return self.psi.versionNumber;
 }
 
 
@@ -243,8 +250,9 @@
 
 -(BOOL)isEqualToPmt:(TSProgramMapTable *)pmt
 {
-    return self.programNumber == pmt.programNumber &&
-    [self.elementaryStreams isEqual:pmt.elementaryStreams];
+    return self.programNumber == pmt.programNumber
+    && self.versionNumber == pmt.versionNumber
+    && [self.elementaryStreams isEqual:pmt.elementaryStreams];
 }
 
 
