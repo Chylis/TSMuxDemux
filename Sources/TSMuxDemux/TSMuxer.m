@@ -93,12 +93,15 @@
         _pat = [[TSProgramAssociationTable alloc] initWithTransportStreamId:0 programmes:@{ @(PROGRAM_NUMBER): @(_settings.pmtPid)}];
         _patTrack = [[TSElementaryStream alloc] initWithPid:PID_PAT
                                                  streamType:streamTypeNotApplicable
-                                              descriptorTag:TSDescriptorTagUnknown];
+                                              descriptorTag:0];
         
-        _pmt = [[TSProgramMapTable alloc] initWithProgramNumber:PROGRAM_NUMBER pcrPid:0 elementaryStreams:[NSSet set]];
+        _pmt = [[TSProgramMapTable alloc] initWithProgramNumber:PROGRAM_NUMBER
+                                                  versionNumber:0
+                                                         pcrPid:0
+                                              elementaryStreams:[NSSet set]];
         _pmtTrack = [[TSElementaryStream alloc] initWithPid:settings.pmtPid
                                                  streamType:streamTypeNotApplicable
-                                              descriptorTag:TSDescriptorTagUnknown];
+                                              descriptorTag:0];
         
         _accessUnits = [NSMutableArray array];
     }

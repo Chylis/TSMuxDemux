@@ -19,6 +19,7 @@
 
 @property(nonatomic) uint16_t pcrPid;
 @property(nonatomic, readonly) uint16_t programNumber;
+@property(nonatomic, readonly) uint8_t versionNumber;
 @property(nonatomic, readonly) uint16_t programInfoLength;
 @property(nonatomic, readonly) NSSet<TSElementaryStream*> * _Nonnull elementaryStreams;
 
@@ -28,6 +29,7 @@
 #pragma mark Muxer
 
 -(instancetype _Nullable)initWithProgramNumber:(uint16_t)programNumber
+                                 versionNumber:(uint8_t)versionNumber
                                         pcrPid:(uint16_t)pcrPid
                              elementaryStreams:(NSSet<TSElementaryStream*>* _Nonnull)elementaryStreams;
 

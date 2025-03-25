@@ -14,7 +14,7 @@
 
 -(instancetype)initWithPid:(uint16_t)pid
                 streamType:(TSStreamType)streamType
-             descriptorTag:(TSDescriptorTag)descriptorTag
+             descriptorTag:(uint8_t)descriptorTag
 {
     self = [super init];
     if (self) {

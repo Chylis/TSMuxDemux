@@ -23,12 +23,12 @@
 
 @property(nonatomic, readonly) uint16_t pid;
 @property(nonatomic, readonly) TSStreamType streamType;
-@property(nonatomic, readonly) TSDescriptorTag descriptorTag;
+@property(nonatomic, readonly) uint8_t descriptorTag;
 
 -(instancetype _Nonnull)initWithDelegate:(id<TSElementaryStreamBuilderDelegate> _Nullable)delegate
                                      pid:(uint16_t)pid
                               streamType:(TSStreamType)streamType
-                           descriptorTag:(TSDescriptorTag)descriptorTag;
+                           descriptorTag:(uint8_t)descriptorTag;
 
 -(void)addTsPacket:(TSPacket* _Nonnull)tsPacket;
 
