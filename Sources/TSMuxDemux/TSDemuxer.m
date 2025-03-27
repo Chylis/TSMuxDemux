@@ -12,17 +12,18 @@
 #import "TR101290/TSTr101290Analyzer.h"
 #import "Table/TSProgramAssociationTable.h"
 #import "Table/TSProgramMapTable.h"
+#import "Table/DVB/TSDvbServiceDescriptionTable.h"
 #import "TSAccessUnit.h"
 #import "TSElementaryStream.h"
 #import "TSElementaryStreamBuilder.h"
+#import "Table/TSPsiTableBuilder.h"
 #import "TSTimeUtil.h"
 
-typedef NSNumber *ElementaryStreamPid;
-
-@interface TSDemuxer() <TSElementaryStreamBuilderDelegate>
+@interface TSDemuxer() <TSPsiTableBuilderDelegate, TSElementaryStreamBuilderDelegate>
 
 @property(nonatomic, nonnull) TSTr101290Analyzer *tsPacketAnalyzer;
-@property(nonatomic, nonnull) NSMutableDictionary<ElementaryStreamPid, TSElementaryStreamBuilder*> *streamBuilders;
+@property(nonatomic, nonnull) NSMutableDictionary<Pid, TSPsiTableBuilder*> *tableBuilders;
+@property(nonatomic, nonnull) NSMutableDictionary<Pid, TSElementaryStreamBuilder*> *streamBuilders;
 
 @end
 
@@ -40,6 +41,9 @@ typedef NSNumber *ElementaryStreamPid;
         self.tsPacketAnalyzer = [TSTr101290Analyzer new];
         
         _pmts = [NSMutableDictionary dictionary];
+        
+        self.tableBuilders = [NSMutableDictionary dictionary];
+
     }
     return self;
 }
@@ -113,14 +117,17 @@ typedef NSNumber *ElementaryStreamPid;
     NSArray<TSPacket*> *tsPackets = [TSPacket packetsFromChunkedTsData:chunk];
     for (TSPacket *tsPacket in tsPackets) {
         BOOL isPes = NO;
-        TSProgramMapTable *pmt = nil;
-        TSProgramAssociationTable *pat = nil;
-        
+
         uint16_t pid = tsPacket.header.pid;
         //NSLog(@"Received pid '%u'", pid);
 
         if (pid == PID_PAT) {
-            pat = [[TSProgramAssociationTable alloc] initWithTsPacket:tsPacket];
+            TSPsiTableBuilder *builder = [self.tableBuilders objectForKey:@(pid)];
+            if (!builder) {
+                builder = [[TSPsiTableBuilder alloc] initWithDelegate:self pid:pid];
+                [self.tableBuilders setObject:builder forKey:@(pid)];
+            }
+            [builder addTsPacket:tsPacket];
         } else if (pid == PID_CAT) {
             // TODO Parse...
             // NSLog(@"Received CAT");
@@ -133,6 +140,13 @@ typedef NSNumber *ElementaryStreamPid;
         } else if (pid == PID_ASI) {
             // TODO Parse...
             NSLog(@"Received ASI");
+        } else if (pid == PID_DVB_SDT_BAT_ST) {
+            TSPsiTableBuilder *builder = [self.tableBuilders objectForKey:@(pid)];
+            if (!builder) {
+                builder = [[TSPsiTableBuilder alloc] initWithDelegate:self pid:pid];
+                [self.tableBuilders setObject:builder forKey:@(pid)];
+            }
+            [builder addTsPacket:tsPacket];
         } else if (pid == PID_NULL_PACKET) {
             // TODO Parse...
             //NSLog(@"Received null packet");
@@ -145,28 +159,44 @@ typedef NSNumber *ElementaryStreamPid;
                     // TODO Parse...
                     NSLog(@"Received Network Info table");
                 } else {
-                    pmt = [[TSProgramMapTable alloc] initWithTsPacket:tsPacket];
+                    // PMT
+                    TSPsiTableBuilder *builder = [self.tableBuilders objectForKey:@(pid)];
+                    if (!builder) {
+                        builder = [[TSPsiTableBuilder alloc] initWithDelegate:self pid:pid];
+                        [self.tableBuilders setObject:builder forKey:@(pid)];
+                    }
+                    [builder addTsPacket:tsPacket];
                 }
             } else if (![PidUtil isReservedPid:pid]){
                 isPes = YES;
             }
         }
         
-        // Analyze first
-        [self.tsPacketAnalyzer analyzeTsPacket:tsPacket
-                                           pat:pat
-                                           pmt:pmt
-                             dataArrivalTimeMs:dataArrivalHostTimeNanos / 1000000];
+        // FIXME MG: Analyze first
+        /* [self.tsPacketAnalyzer analyzeTsPacket:tsPacket
+         pat:self.pat
+         pmt:pmt
+         dataArrivalTimeMs:dataArrivalHostTimeNanos / 1000000];
+         */
         
-        // Then process
-        if (pat) {
-            self.pat = pat;
-        } else if (pmt) {
-            [self updatePmt:pmt];
-        } else if (isPes) {
+        if (isPes) {
             TSElementaryStreamBuilder *builder = [self.streamBuilders objectForKey:@(pid)];
             [builder addTsPacket:tsPacket];
         }
+    }
+}
+
+-(void)tableBuilder:(TSPsiTableBuilder *)builder didBuildTable:(TSProgramSpecificInformationTable *)table
+{
+    if (table.tableId == TABLE_ID_PAT) {
+        self.pat = [[TSProgramAssociationTable alloc] initWithPSI:table];
+    } else if (table.tableId == TABLE_ID_PMT) {
+        [self updatePmt:[[TSProgramMapTable alloc] initWithPSI:table]];
+    } else if (table.tableId == TABLE_ID_DVB_SDT_ACTUAL_TS) {
+        TSDvbServiceDescriptionTable *sdt = [[TSDvbServiceDescriptionTable alloc] initWithPSI:table];
+        NSLog(@"Received pid: %u, table: %@", builder.pid, sdt.description);
+    } else {
+        NSLog(@"Received unhandles PSI table pid: %u, tableId: %u", builder.pid, table.tableId);
     }
 }
 
