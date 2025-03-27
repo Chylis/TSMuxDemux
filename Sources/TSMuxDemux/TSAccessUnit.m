@@ -22,7 +22,7 @@ static const uint8_t TIMESTAMP_LENGTH = 5; // A timestamp (pts/dts) is a 33-bit 
                                 pts:(CMTime)pts
                                 dts:(CMTime)dts
                     isDiscontinuous:(BOOL)isDiscontinuous
-                         streamType:(TSStreamType)streamType
+                         streamType:(uint8_t)streamType
                         descriptors:(NSArray<TSDescriptor *> * _Nullable)descriptors
                      compressedData:(NSData * _Nonnull)compressedData
 {
@@ -41,7 +41,7 @@ static const uint8_t TIMESTAMP_LENGTH = 5; // A timestamp (pts/dts) is a 33-bit 
 
 +(instancetype _Nullable)initWithTsPacket:(TSPacket* _Nonnull)packet
                                       pid:(uint16_t)pid
-                               streamType:(TSStreamType)streamType
+                               streamType:(uint8_t)streamType
                               descriptors:(NSArray<TSDescriptor *> * _Nullable)descriptors
 {
     
@@ -221,7 +221,7 @@ static const uint8_t TIMESTAMP_LENGTH = 5; // A timestamp (pts/dts) is a 33-bit 
                                descriptors:self.descriptors];
 }
 
-+(BOOL)isAudioStreamType:(TSStreamType)streamType
++(BOOL)isAudioStreamType:(uint8_t)streamType
              descriptors:(NSArray<TSDescriptor*>* _Nullable)descriptors
 {
     switch (streamType) {
@@ -248,7 +248,7 @@ static const uint8_t TIMESTAMP_LENGTH = 5; // A timestamp (pts/dts) is a 33-bit 
 {
     return [TSAccessUnit isVideoStreamType:self.streamType];
 }
-+(BOOL)isVideoStreamType:(TSStreamType)streamType
++(BOOL)isVideoStreamType:(uint8_t)streamType
 {
     switch (streamType) {
         case TSStreamTypeH264:      return YES;
@@ -264,10 +264,10 @@ static const uint8_t TIMESTAMP_LENGTH = 5; // A timestamp (pts/dts) is a 33-bit 
 {
     return [TSAccessUnit streamTypeDescription:self.streamType];
 }
-+(NSString*)streamTypeDescription:(TSStreamType)streamType
++(NSString*)streamTypeDescription:(uint8_t)streamType
 {
-    NSString *type = [NSString stringWithFormat:@"0x%02x", streamType];
-    switch (streamType) {
+    NSString *type = nil;
+    switch ((TSStreamType)streamType) {
         case TSStreamTypeADTSAAC:
             type = @"ADTS AAC";
             break;
@@ -280,6 +280,16 @@ static const uint8_t TIMESTAMP_LENGTH = 5; // A timestamp (pts/dts) is a 33-bit 
         case TSStreamTypePrivateData:
             type = @"PES private data";
             break;
+    }
+
+    switch ((TSScte35StreamType)streamType) {
+        case TSScte35StreamTypeSpliceInfo:
+            type = @"SCTE-35 splice info";
+            break;
+    }
+
+    if (!type) {
+        type = [NSString stringWithFormat:@"0x%02x", streamType];
     }
     return [NSString stringWithFormat:@"%@", type];
 }

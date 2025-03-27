@@ -284,14 +284,14 @@
 
 -(NSString*)description
 {
-    NSMutableString *progDescriptors = [NSMutableString stringWithFormat:@"%@", self.programDescriptors.count > 0 ? @"" : @"None"];
+    NSMutableString *progDescriptors = [NSMutableString stringWithFormat:@"%@", @""];
         
     BOOL first = YES;
     for (TSDescriptor *d in self.programDescriptors) {
         if (!first) {
             [progDescriptors appendString:@", "];
         }
-        [progDescriptors appendString:[NSString stringWithFormat:@"%@", [d tagDescription]]];
+        [progDescriptors appendString:[d tagDescription]];
         first = NO;
     }
     
