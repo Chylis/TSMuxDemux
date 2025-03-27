@@ -10,7 +10,7 @@
 
 #import "TSRegistrationDescriptor.h"
 #import "TSISO639LanguageDescriptor.h"
-#import "TSCueIdentifierDescriptor.h"
+#import "SCTE35/TSScte35CueIdentifierDescriptor.h"
 
 #pragma mark - TSDescriptor
 
@@ -31,7 +31,7 @@
             descriptorClass = [TSISO639LanguageDescriptor class];
             break;
         case TSScte35DescriptorTagCueIdentifier:
-            descriptorClass = [TSCueIdentifierDescriptor class];
+            descriptorClass = [TSScte35CueIdentifierDescriptor class];
             break;
     }
     if (descriptorClass) {

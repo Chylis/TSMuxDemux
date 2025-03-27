@@ -1,14 +1,14 @@
 //
-//  TSCueIdentifierDescriptor.m
+//  TSScte35CueIdentifierDescriptor.m
 //  TSMuxDemux
 //
 //  Created by Magnus G Eriksson on 2021-04-06.
 //  Copyright © 2021 Magnus Makes Software. All rights reserved.
 //
 
-#import "TSCueIdentifierDescriptor.h"
+#import "TSScte35CueIdentifierDescriptor.h"
 
-@implementation TSCueIdentifierDescriptor
+@implementation TSScte35CueIdentifierDescriptor
 
 -(instancetype _Nonnull)initWithTag:(uint8_t)tag
                             payload:(NSData* _Nonnull)payload

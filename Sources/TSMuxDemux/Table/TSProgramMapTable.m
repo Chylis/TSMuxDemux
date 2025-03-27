@@ -229,12 +229,6 @@
     return self.psi.byte4And5;
 }
 
--(uint8_t)versionNumber
-{
-    return self.psi.versionNumber;
-}
-
-
 -(void)setPcrPid:(uint16_t)pcrPid
 {
     if (self.pcrPid != pcrPid) {
@@ -277,7 +271,7 @@
 -(BOOL)isEqualToPmt:(TSProgramMapTable *)pmt
 {
     return self.programNumber == pmt.programNumber
-    && self.versionNumber == pmt.versionNumber
+    && self.psi.versionNumber == pmt.psi.versionNumber
     && [self.elementaryStreams isEqual:pmt.elementaryStreams];
 }
 
@@ -301,7 +295,7 @@
     
     return [NSString stringWithFormat:
             @"{ v: %u, program: %hu, pcrPid: %hu, tags: [%@], streams: %@ }",
-            self.versionNumber,
+            self.psi.versionNumber,
             self.programNumber,
             self.pcrPid,
             progDescriptors,

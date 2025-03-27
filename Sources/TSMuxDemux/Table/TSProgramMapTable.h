@@ -17,10 +17,9 @@
 @interface TSProgramMapTable : NSObject
 
 @property(nonatomic, readonly) TSProgramSpecificInformationTable * _Nonnull psi;
+@property(nonatomic, readonly) uint16_t programNumber;
 
 @property(nonatomic) uint16_t pcrPid;
-@property(nonatomic, readonly) uint16_t programNumber;
-@property(nonatomic, readonly) uint8_t versionNumber;
 @property(nonatomic, readonly) uint16_t programInfoLength;
 @property(nonatomic, readonly) NSArray<TSDescriptor*> * _Nullable programDescriptors;
 @property(nonatomic, readonly) NSSet<TSElementaryStream*> * _Nonnull elementaryStreams;

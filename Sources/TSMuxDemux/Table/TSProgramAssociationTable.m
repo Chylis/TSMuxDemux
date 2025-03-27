@@ -64,7 +64,8 @@
 
 -(instancetype _Nullable)initWithTsPacket:(TSPacket* _Nonnull)packet
 {
-    TSProgramSpecificInformationTable *psi = [[TSProgramSpecificInformationTable alloc] initWithTsPacket:packet];
+    TSProgramSpecificInformationTable *psi = [[TSProgramSpecificInformationTable alloc]
+                                              initWithTsPacket:packet];
     if (!psi.sectionData) {
         return nil;
     }

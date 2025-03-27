@@ -17,8 +17,8 @@
 @interface TSProgramAssociationTable : NSObject
 
 @property(nonatomic, readonly) TSProgramSpecificInformationTable * _Nonnull psi;
-
 @property(nonatomic, readonly) uint16_t transportStreamId;
+
 @property(nonatomic, readonly) NSDictionary<ProgramNumber, PmtPid>* _Nonnull programmes;
 
 /// Reverse lookup - get a program number from a pid
