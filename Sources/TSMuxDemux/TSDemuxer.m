@@ -78,7 +78,7 @@ typedef NSNumber *ElementaryStreamPid;
             builder = [[TSElementaryStreamBuilder alloc] initWithDelegate:self
                                                                       pid:stream.pid
                                                                streamType:stream.streamType
-                                                            descriptorTag:stream.descriptorTag];
+                                                              descriptors:stream.descriptors];
             [self.streamBuilders setObject:builder forKey:@(stream.pid)];
         }
     }

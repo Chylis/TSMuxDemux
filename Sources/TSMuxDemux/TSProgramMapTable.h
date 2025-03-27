@@ -9,6 +9,7 @@
 #import "TSProgramSpecificInformationTable.h"
 #import "TSConstants.h"
 @class TSPacket;
+@class TSDescriptor;
 @class TSElementaryStream;
 
 /// See "Rec. ITU-T H.222.0 (03/2017)"
@@ -21,6 +22,7 @@
 @property(nonatomic, readonly) uint16_t programNumber;
 @property(nonatomic, readonly) uint8_t versionNumber;
 @property(nonatomic, readonly) uint16_t programInfoLength;
+@property(nonatomic, readonly) NSArray<TSDescriptor*> * _Nullable programDescriptors;
 @property(nonatomic, readonly) NSSet<TSElementaryStream*> * _Nonnull elementaryStreams;
 
 -(void)addElementaryStream:(TSElementaryStream* _Nonnull)elementaryStream;
@@ -31,6 +33,7 @@
 -(instancetype _Nullable)initWithProgramNumber:(uint16_t)programNumber
                                  versionNumber:(uint8_t)versionNumber
                                         pcrPid:(uint16_t)pcrPid
+                            programDescriptors:(NSArray<TSDescriptor*>* _Nullable)programDescriptors
                              elementaryStreams:(NSSet<TSElementaryStream*>* _Nonnull)elementaryStreams;
 
 -(NSData* _Nonnull)toTsPacketPayload;
