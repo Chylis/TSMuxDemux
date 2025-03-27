@@ -23,10 +23,10 @@
 @interface TSDvbServiceDescriptionTable : NSObject
 
 @property(nonatomic, readonly) TSProgramSpecificInformationTable * _Nonnull psi;
-@property(nonatomic, readonly) uint16_t transportStreamId;
+-(uint16_t)transportStreamId;
 
-@property(nonatomic, readonly) uint16_t originalNetworkId;
-@property(nonatomic, readonly) NSArray<TSDvbServiceDescriptionEntry*> * _Nullable entries;
+-(uint16_t)originalNetworkId;
+-(NSArray<TSDvbServiceDescriptionEntry*> * _Nullable)entries;
 
 #pragma mark Demuxer
 

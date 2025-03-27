@@ -20,76 +20,79 @@
 {
     self = [super init];
     if (self) {
+        
+        NSData *sectionDataExcludingCrc = [TSProgramAssociationTable makeSectionDataFromTransportStreamId:transportStreamId
+                                                                                            versionNumber:0
+                                                                                     currentNextIndicator:YES
+                                                                                            sectionNumber:0
+                                                                                        lastSectionNumber:0
+                                                                                               programmes:programmes];
         _psi = [[TSProgramSpecificInformationTable alloc]
                 initWithTableId:TABLE_ID_PAT
-                byte4And5:transportStreamId
-                versionNumber:0];
-        _programmes = programmes;
+                sectionSyntaxIndicator:PSI_SECTION_SYNTAX_INDICATOR
+                reservedBit1:PSI_PRIVATE_BIT
+                reservedBits2:PSI_RESERVED_BITS
+                sectionLength:sectionDataExcludingCrc.length
+                sectionDataExcludingCrc:sectionDataExcludingCrc
+                crc:0];
     }
     return self;
 }
 
 -(NSData* _Nonnull)toTsPacketPayload
 {
-    return [self.psi toTsPacketPayload:[TSProgramAssociationTable makeSectionDataFromProgrammes:self.programmes]];
+    return [self.psi toTsPacketPayload:self.psi.sectionDataExcludingCrc];
 }
 
-+(NSData*)makeSectionDataFromProgrammes:(NSDictionary<ProgramNumber, PmtPid> * _Nonnull)programmes
++(NSData*)makeSectionDataFromTransportStreamId:(uint16_t)transportStreamId
+                                 versionNumber:(uint8_t)versionNumber
+                          currentNextIndicator:(BOOL)currentNextIndicator
+                                 sectionNumber:(uint8_t)sectionNumber
+                             lastSectionNumber:(uint8_t)lastSectionNumber
+                                    programmes:(NSDictionary<ProgramNumber, PmtPid> * _Nonnull)programmes
 {
-    NSMutableData *sectionData = [NSMutableData dataWithCapacity:programmes.count * PROGRAM_BYTE_LENGTH];
+    NSData *commonSectionData = [TSProgramSpecificInformationTable makeCommonSectionDataFromFirstTwoBytes:transportStreamId
+                                                                                            versionNumber:versionNumber
+                                                                                     currentNextIndicator:currentNextIndicator
+                                                                                            sectionNumber:sectionNumber
+                                                                                        lastSectionNumber:lastSectionNumber];
+    NSMutableData *sectionDataExcludingCrc = [NSMutableData dataWithCapacity:commonSectionData.length + (programmes.count * PROGRAM_BYTE_LENGTH)];
+    [sectionDataExcludingCrc appendData:commonSectionData];
     
     for (ProgramNumber programNumber in programmes) {
         // Program byte 1 + 2:
         // 16 bits, 1-16:   Program_number. 0 is reserved for the network pid). It specifies the program to which the program_map_PID is applicable.
         uint16_t programByte1And2 = CFSwapInt16HostToBig(programNumber.unsignedShortValue);
-        [sectionData appendBytes:&programByte1And2 length:2];
+        [sectionDataExcludingCrc appendBytes:&programByte1And2 length:2];
         
         // byte 3
         // 3 bits, 17-19:   reserved (111)
         // 5 bits: 20-24:   5 MSB of PMT Pid
         const uint16_t pmtPid = [programmes objectForKey:programNumber].unsignedShortValue;
         const uint8_t programByte3 = (((1 << 3) - 1) << 5) | ((pmtPid >> 8) & 0xff);
-        [sectionData appendBytes:&programByte3 length:1];
+        [sectionDataExcludingCrc appendBytes:&programByte3 length:1];
         
         // byte 4:
         // 8 bits, 25-32:   8 LSB of PMT pid
         const uint8_t programByte4 = pmtPid & 0xff;
-        [sectionData appendBytes:&programByte4 length:1];
+        [sectionDataExcludingCrc appendBytes:&programByte4 length:1];
     }
     
-    return sectionData;
+    return sectionDataExcludingCrc;
 }
 
 #pragma mark - Demuxer
 
--(instancetype _Nullable)initWithTsPacket:(TSPacket* _Nonnull)packet
+-(instancetype _Nullable)initWithPSI:(TSProgramSpecificInformationTable* _Nonnull)psi
 {
-    TSProgramSpecificInformationTable *psi = [[TSProgramSpecificInformationTable alloc]
-                                              initWithTsPacket:packet];
-    if (!psi.sectionData) {
+    if (!psi.sectionDataExcludingCrc || psi.sectionDataExcludingCrc.length == 0) {
+        NSLog(@"PAT received PSI with no section data");
         return nil;
     }
     
     self = [super init];
     if (self) {
         _psi = psi;
-        
-        const NSUInteger numberOfPrograms = psi.sectionData.length / PROGRAM_BYTE_LENGTH;
-        NSMutableDictionary *programPmtMap = [NSMutableDictionary dictionaryWithCapacity:numberOfPrograms];
-        for (int i = 0; i < numberOfPrograms; ++i) {
-            const NSUInteger programOffset = i * PROGRAM_BYTE_LENGTH;
-            uint16_t programByte1And2 = 0x0;
-            [psi.sectionData getBytes:&programByte1And2 range:NSMakeRange(programOffset, 2)];
-            uint16_t programNumber = CFSwapInt16BigToHost(programByte1And2);
-            
-            uint16_t programByte3And4 = 0x0;
-            [psi.sectionData getBytes:&programByte3And4 range:NSMakeRange(programOffset + 2, 2)];
-            uint16_t programPmtPid = CFSwapInt16BigToHost(programByte3And4) & 0x1FFF;
-            
-            programPmtMap[@(programNumber)] = @(programPmtPid);
-        }
-        _programmes = programPmtMap;
-        
     }
     
     return self;
@@ -112,6 +115,26 @@
         }
     }
     return nil;
+}
+
+-(NSDictionary*)programmes
+{
+    NSUInteger baseOffset = 5;
+    const NSUInteger numberOfPrograms = (self.psi.sectionDataExcludingCrc.length - baseOffset) / PROGRAM_BYTE_LENGTH;
+    NSMutableDictionary *programPmtMap = [NSMutableDictionary dictionaryWithCapacity:numberOfPrograms];
+    for (int i = 0; i < numberOfPrograms; ++i) {
+        const NSUInteger programOffset = baseOffset + i * PROGRAM_BYTE_LENGTH;
+        uint16_t programByte1And2 = 0x0;
+        [self.psi.sectionDataExcludingCrc getBytes:&programByte1And2 range:NSMakeRange(programOffset, 2)];
+        uint16_t programNumber = CFSwapInt16BigToHost(programByte1And2);
+        
+        uint16_t programByte3And4 = 0x0;
+        [self.psi.sectionDataExcludingCrc getBytes:&programByte3And4 range:NSMakeRange(programOffset + 2, 2)];
+        uint16_t programPmtPid = CFSwapInt16BigToHost(programByte3And4) & 0x1FFF;
+        
+        programPmtMap[@(programNumber)] = @(programPmtPid);
+    }
+    return programPmtMap;
 }
 
 

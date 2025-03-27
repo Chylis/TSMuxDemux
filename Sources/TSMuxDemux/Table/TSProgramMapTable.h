@@ -17,14 +17,11 @@
 @interface TSProgramMapTable : NSObject
 
 @property(nonatomic, readonly) TSProgramSpecificInformationTable * _Nonnull psi;
-@property(nonatomic, readonly) uint16_t programNumber;
-
-@property(nonatomic) uint16_t pcrPid;
-@property(nonatomic, readonly) uint16_t programInfoLength;
-@property(nonatomic, readonly) NSArray<TSDescriptor*> * _Nullable programDescriptors;
-@property(nonatomic, readonly) NSSet<TSElementaryStream*> * _Nonnull elementaryStreams;
-
--(void)addElementaryStream:(TSElementaryStream* _Nonnull)elementaryStream;
+-(uint16_t)programNumber;
+-(uint16_t)pcrPid;
+-(uint16_t) programInfoLength;
+-(NSArray<TSDescriptor*> * _Nullable)programDescriptors;
+-(NSSet<TSElementaryStream*> * _Nonnull)elementaryStreams;
 -(TSElementaryStream* _Nullable)elementaryStreamWithPid:(uint16_t)pid;
 
 #pragma mark Muxer
@@ -32,13 +29,12 @@
 -(instancetype _Nullable)initWithProgramNumber:(uint16_t)programNumber
                                  versionNumber:(uint8_t)versionNumber
                                         pcrPid:(uint16_t)pcrPid
-                            programDescriptors:(NSArray<TSDescriptor*>* _Nullable)programDescriptors
                              elementaryStreams:(NSSet<TSElementaryStream*>* _Nonnull)elementaryStreams;
 
 -(NSData* _Nonnull)toTsPacketPayload;
 
 #pragma mark Demuxer
 
--(instancetype _Nullable)initWithTsPacket:(TSPacket* _Nonnull)packet;
+-(instancetype _Nullable)initWithPSI:(TSProgramSpecificInformationTable* _Nonnull)psi;
 
 @end

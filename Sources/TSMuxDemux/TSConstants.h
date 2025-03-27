@@ -9,7 +9,7 @@
 #import <Foundation/Foundation.h>
 
 typedef NSNumber *ProgramNumber;
-typedef NSNumber *PmtPid; // NSNumber.unsignedShortValue (A PID is a 13-bit value in a uint16_t)
+typedef NSNumber *Pid; // NSNumber.unsignedShortValue (A PID is a 13-bit value in a uint16_t)
 
 FOUNDATION_EXPORT uint32_t const TS_TIMESTAMP_TIMESCALE;
 

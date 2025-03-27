@@ -50,9 +50,14 @@
     [self setLastPacket:tsPacket];
     
     if (isDuplicateCC) {
+        // FIXME MG: Consider not only duplicate CCs but also gaps
         return;
     }
     
+    // FIXME MG: Consider following sequence:
+    // first packet received is packet 2/2 (i.e. not PUSI)
+    // second packet received is packet 1/X (i.e. PUSI=true)
+    // what pts,dts etc will be sent to delegate? 
     if (tsPacket.header.payloadUnitStartIndicator) {
         // First packet of new PES
         if (self.collectedData.length > 0) {
