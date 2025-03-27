@@ -7,7 +7,7 @@
 //
 
 #import "TSProgramSpecificInformationTable.h"
-#import "TSConstants.h"
+#import "../TSConstants.h"
 @class TSPacket;
 
 #pragma mark - TSProgramAssociationTable

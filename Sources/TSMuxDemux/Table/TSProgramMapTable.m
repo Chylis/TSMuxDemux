@@ -7,10 +7,9 @@
 //
 
 #import "TSProgramMapTable.h"
-#import "TSElementaryStream.h"
-
-#import "Descriptor/TSDescriptor.h"
-#import "Descriptor/TSRegistrationDescriptor.h"
+#import "../TSElementaryStream.h"
+#import "../Descriptor/TSDescriptor.h"
+#import "../Descriptor/TSRegistrationDescriptor.h"
 
 #define ELEMENTARY_STREAM_BYTE_LENGTH 5
 
