@@ -370,7 +370,7 @@
 
 +(NSArray<TSPacket*>*)packetsFromChunkedTsData:(NSData* _Nonnull)chunk
 {
-    NSAssert(chunk.length % TS_PACKET_SIZE == 0, @"Received non-integer number of ts packets");
+    NSAssert(chunk.length % TS_PACKET_SIZE == 0, @"Received non-integer number of ts packets: %lu", (unsigned long)chunk.length);
     
     NSUInteger numberOfPackets = chunk.length / TS_PACKET_SIZE;
     NSMutableArray *packets = [NSMutableArray arrayWithCapacity:numberOfPackets];

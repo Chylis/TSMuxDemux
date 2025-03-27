@@ -9,6 +9,7 @@
 #import "TSProgramSpecificInformationTable.h"
 #import "../TSConstants.h"
 @class TSPacket;
+typedef Pid PmtPid;
 
 #pragma mark - TSProgramAssociationTable
 
@@ -18,11 +19,10 @@
 
 @property(nonatomic, readonly) TSProgramSpecificInformationTable * _Nonnull psi;
 
-@property(nonatomic, readonly) uint16_t transportStreamId;
-@property(nonatomic, readonly) NSDictionary<ProgramNumber, PmtPid>* _Nonnull programmes;
-
+-(uint16_t)transportStreamId;
 /// Reverse lookup - get a program number from a pid
 -(ProgramNumber _Nullable)programNumberFromPid:(uint16_t)pid;
+-(NSDictionary<ProgramNumber, PmtPid>* _Nonnull)programmes;
 
 #pragma mark Muxer
 
@@ -33,6 +33,6 @@
 
 #pragma mark Demuxer
 
--(instancetype _Nullable)initWithTsPacket:(TSPacket* _Nonnull)packet;
+-(instancetype _Nullable)initWithPSI:(TSProgramSpecificInformationTable* _Nonnull)psi;
 
 @end

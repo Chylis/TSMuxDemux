@@ -57,9 +57,12 @@
 @property(nonatomic, readonly, nonnull) TSProgramAssociationTable *pat;
 @property(nonatomic, readonly, nonnull) TSElementaryStream *patTrack;
 
-@property(nonatomic, readonly, nonnull) TSProgramMapTable *pmt;
 @property(nonatomic, readonly, nonnull) TSElementaryStream *pmtTrack;
 @property(nonatomic, readonly, nonnull) NSMutableArray<TSAccessUnit*> *accessUnits;
+
+@property(nonatomic) uint16_t pcrPid;
+@property(nonatomic) uint8_t versionNumber;
+@property(nonatomic, readonly, nonnull) NSSet<TSElementaryStream*> *elementaryStreams;
 
 /// Timestamp representing when the program specific information was last sent.
 @property(nonatomic) uint64_t psiSendTimeMs;
@@ -96,15 +99,13 @@
                                                  streamType:streamTypeNotApplicable
                                                 descriptors:nil];
         
-        _pmt = [[TSProgramMapTable alloc] initWithProgramNumber:PROGRAM_NUMBER
-                                                  versionNumber:0
-                                                         pcrPid:0
-                                             programDescriptors:nil
-                                              elementaryStreams:[NSSet set]];
         _pmtTrack = [[TSElementaryStream alloc] initWithPid:settings.pmtPid
                                                  streamType:streamTypeNotApplicable
                                                 descriptors:nil];
         
+        _pcrPid = 0;
+        _versionNumber = 0;
+        _elementaryStreams = [NSSet set];
         _accessUnits = [NSMutableArray array];
     }
     
@@ -121,23 +122,53 @@
     _settings = [settings copy];
 }
 
+-(void)setPcrPid:(uint16_t)pcrPid
+{
+    if (self.pcrPid != pcrPid) {
+        _pcrPid = pcrPid;
+        [self setVersionNumber:self.versionNumber + 1];
+    }
+}
+
+-(void)setVersionNumber:(uint8_t)versionNumber
+{
+    _versionNumber = versionNumber % 32; // Version number is a 5 bit field. 2^5 = 32.
+}
+
+-(void)addElementaryStream:(TSElementaryStream* _Nonnull)es
+{
+    const BOOL alreadyExists = [self elementaryStreamWithPid:es.pid] != nil;
+    if (!alreadyExists) {
+        _elementaryStreams = [self.elementaryStreams setByAddingObject:es];
+        [self setVersionNumber:self.versionNumber + 1];
+    }
+}
+
+-(TSElementaryStream* _Nullable)elementaryStreamWithPid:(uint16_t)pid
+{
+    for (TSElementaryStream *es in self.elementaryStreams) {
+        if (es.pid == pid) return es;
+    }
+    return nil;
+}
+
 -(void)mux:(TSAccessUnit *)accessUnit
 {
     if ([PidUtil isCustomPidInvalid:accessUnit.pid] || accessUnit.pid == _settings.pmtPid) {
         [NSException raise:@"TSMuxerInvalidPidException" format:@"Pid is reserved/occupied/out of valid range"];
     }
     
-    BOOL hasSetPcrPid = self.pmt.pcrPid != 0;
+    BOOL hasSetPcrPid = self.pcrPid != 0;
     if (!hasSetPcrPid && [accessUnit isVideoStreamType]) {
-        self.pmt.pcrPid = accessUnit.pid;
+        self.pcrPid = accessUnit.pid;
     }
     
-    TSElementaryStream *track = [self.pmt elementaryStreamWithPid:accessUnit.pid];
+    TSElementaryStream *track = [self elementaryStreamWithPid:accessUnit.pid];
     if (!track) {
         track = [[TSElementaryStream alloc] initWithPid:accessUnit.pid
                                              streamType:accessUnit.streamType
                                             descriptors:accessUnit.descriptors];
-        [self.pmt addElementaryStream:track];
+        [self addElementaryStream:track];
     }
     
     [self.accessUnits addObject:accessUnit];
@@ -162,8 +193,12 @@
                                 pcrExt:0
                         onTsPacketData:onTsPacketCb];
             
-            if (self.pmt.elementaryStreams.count > 0) {
-                [TSPacket packetizePayload:[self.pmt toTsPacketPayload]
+            if (self.elementaryStreams.count > 0) {
+                TSProgramMapTable *pmt = [[TSProgramMapTable alloc] initWithProgramNumber:PROGRAM_NUMBER
+                                                                            versionNumber:self.versionNumber
+                                                                                   pcrPid:self.pcrPid
+                                                                        elementaryStreams:self.elementaryStreams];
+                [TSPacket packetizePayload:[pmt toTsPacketPayload]
                                      track:self.pmtTrack
                                  forcePusi:YES
                                    pcrBase:0
@@ -181,7 +216,7 @@
         
         
         NSData *pesPacket = [accessUnit toTsPacketPayload];
-        TSElementaryStream *track = [self.pmt elementaryStreamWithPid:accessUnit.pid];
+        TSElementaryStream *track = [self elementaryStreamWithPid:accessUnit.pid];
         
         uint64_t pcr = [self maybeGetPcr:accessUnit];
         [TSPacket packetizePayload:pesPacket track:track forcePusi:NO pcrBase:pcr pcrExt:0 onTsPacketData:onTsPacketCb];
@@ -197,7 +232,7 @@
 
 -(uint64_t)maybeGetPcr:(const TSAccessUnit *)accessUnit
 {
-    if (self.pmt.pcrPid != accessUnit.pid) {
+    if (self.pcrPid != accessUnit.pid) {
         return 0;
     }
     static const NSUInteger pcrIntervalSeconds = 0.04;
