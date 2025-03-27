@@ -94,7 +94,7 @@
             if (!first) {
                 [desc appendString:@", "];
             }
-            [desc appendString:[NSString stringWithFormat:@"%@", [d tagDescription]]];
+            [desc appendString:[d tagDescription]];
             first = NO;
         }
     }

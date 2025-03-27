@@ -15,10 +15,16 @@
 // https://en.wikipedia.org/wiki/Program-specific_information#Elementary_stream_types
 typedef NS_ENUM(uint8_t, TSStreamType) {
     // TSStreamTypePrivateData type of data is determined by descriptor tags (TSDescriptorTag)
-    TSStreamTypePrivateData = 0x06,
-    TSStreamTypeADTSAAC = 0x0f,
-    TSStreamTypeH264 = 0x1b,
-    TSStreamTypeH265 = 0x24,
+    TSStreamTypePrivateData                          = 0x06,
+    TSStreamTypeADTSAAC                              = 0x0f,
+    TSStreamTypeH264                                 = 0x1b,
+    TSStreamTypeH265                                 = 0x24,
+};
+
+// Defined in ANSI/SCTE 35 - Digital Program Insertion Cueing Message
+// Uses range 0x80 - 0xFF (i.e. of the user defined range)
+typedef NS_ENUM(uint8_t, TSScte35StreamType) {
+    TSScte35StreamTypeSpliceInfo                     = 0x86
 };
 
 /// See "Rec. ITU-T H.222.0 (03/2017)"
@@ -36,7 +42,7 @@ typedef NS_ENUM(uint8_t, TSStreamType) {
 /// Set to true if the ts packet is flagged as discontinuous. Should be used as a hint to e.g. reset PTS-anchors etc.
 @property(nonatomic, readonly) BOOL isDiscontinuous;
 
-@property(nonatomic, readonly) TSStreamType streamType;
+@property(nonatomic, readonly) uint8_t streamType;
 @property(nonatomic, readonly, nullable) NSArray<TSDescriptor*> *descriptors;
 
 @property(nonatomic, readonly, nonnull) NSData *compressedData;
@@ -45,14 +51,14 @@ typedef NS_ENUM(uint8_t, TSStreamType) {
                                 pts:(CMTime)pts
                                 dts:(CMTime)dts
                     isDiscontinuous:(BOOL)isDiscontinuous
-                         streamType:(TSStreamType)streamType
+                         streamType:(uint8_t)streamType
                          descriptors:(NSArray<TSDescriptor*>* _Nullable)descriptors
                      compressedData:(NSData* _Nonnull)compressedData;
 
 /// Creates a PES-packet from the received ts packet.
 +(instancetype _Nullable)initWithTsPacket:(TSPacket* _Nonnull)packet
                                       pid:(uint16_t)pid
-                               streamType:(TSStreamType)streamType
+                               streamType:(uint8_t)streamType
                               descriptors:(NSArray<TSDescriptor*>* _Nullable)descriptors;
 
 
@@ -61,13 +67,13 @@ typedef NS_ENUM(uint8_t, TSStreamType) {
 -(NSData* _Nonnull)toTsPacketPayload;
 
 -(BOOL)isAudioStreamType;
-+(BOOL)isAudioStreamType:(TSStreamType)streamType
++(BOOL)isAudioStreamType:(uint8_t)streamType
              descriptors:(NSArray<TSDescriptor*>* _Nullable)descriptors;
 
 -(BOOL)isVideoStreamType;
-+(BOOL)isVideoStreamType:(TSStreamType)streamType;
++(BOOL)isVideoStreamType:(uint8_t)streamType;
 
 -(NSString* _Nonnull)streamTypeDescription;
-+(NSString* _Nonnull)streamTypeDescription:(TSStreamType)streamType;
++(NSString* _Nonnull)streamTypeDescription:(uint8_t)streamType;
 
 @end

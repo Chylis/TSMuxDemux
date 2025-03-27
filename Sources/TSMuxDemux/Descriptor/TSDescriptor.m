@@ -9,6 +9,7 @@
 #import "TSDescriptor.h"
 
 #import "TSRegistrationDescriptor.h"
+#import "TSISO639LanguageDescriptor.h"
 #import "TSCueIdentifierDescriptor.h"
 
 #pragma mark - TSDescriptor
@@ -21,19 +22,26 @@
 {
     NSUInteger offset = 0;
     
-    if (tag == TSDescriptorTagRegistration) {
-        return [[TSRegistrationDescriptor alloc] initWithTag:tag
-                                                     payload:payload
-                                                      length:length];
-        
-    } else if (tag == TSScte35CueIdentifierDescriptor) {
-        return [[TSCueIdentifierDescriptor alloc] initWithTag:tag
-                                                      payload:payload
-                                                       length:length];
-    } else {
-        return [[TSDescriptor alloc] initWithTag:tag length:length];
-        
+    Class descriptorClass = nil;
+    switch (tag) {
+        case TSDescriptorTagRegistration:
+            descriptorClass = [TSRegistrationDescriptor class];
+            break;
+        case TSDescriptorTagISO639Language:
+            descriptorClass = [TSISO639LanguageDescriptor class];
+            break;
+        case TSScte35CueIdentifierDescriptor:
+            descriptorClass = [TSCueIdentifierDescriptor class];
+            break;
     }
+    if (descriptorClass) {
+        return [[descriptorClass alloc] initWithTag:tag
+                                            payload:payload
+                                             length:length];
+    }
+    
+    //NSLog(@"Received unimplemented descriptor tag %u - not parsing its payload", tag);
+    return [[TSDescriptor alloc] initWithTag:tag length:length];
 }
 
 -(instancetype)initWithTag:(uint8_t)tag
@@ -323,7 +331,7 @@
             return @"SCTE 35 Cue id";
     }
     
-    return [NSString stringWithFormat:@"0x%02x", descriptorTag];
+    return [NSString stringWithFormat:@"Private: 0x%02x", descriptorTag];
 }
 
 @end
