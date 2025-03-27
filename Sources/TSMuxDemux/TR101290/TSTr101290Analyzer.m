@@ -7,11 +7,11 @@
 
 #import "TSTr101290Analyzer.h"
 #import "TSTr101290Statistics.h"
-#import "TSConstants.h"
-#import "TSProgramAssociationTable.h"
-#import "TSProgramMapTable.h"
-#import "TSPacket.h"
-#import "TSTimeUtil.h"
+#import "../TSConstants.h"
+#import "../Table/TSProgramAssociationTable.h"
+#import "../Table/TSProgramMapTable.h"
+#import "../TSPacket.h"
+#import "../TSTimeUtil.h"
 
 #pragma mark - TSContinuityCounter
 

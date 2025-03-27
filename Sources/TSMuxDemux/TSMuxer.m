@@ -10,8 +10,8 @@
 #import "TSElementaryStream.h"
 #import "TSAccessUnit.h"
 #import "TSPacket.h"
-#import "TSProgramAssociationTable.h"
-#import "TSProgramMapTable.h"
+#import "Table/TSProgramAssociationTable.h"
+#import "Table/TSProgramMapTable.h"
 #import "TSTimeUtil.h"
 
 #pragma mark - TSMuxerSettings

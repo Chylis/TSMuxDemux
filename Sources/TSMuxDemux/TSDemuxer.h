@@ -9,9 +9,9 @@
 #import <Foundation/Foundation.h>
 #import "TSConstants.h"
 #import "TSAccessUnit.h"
-#import "TSProgramMapTable.h"
-#import "TSTr101290Statistics.h"
-#import "TSProgramAssociationTable.h"
+#import "Table/TSProgramMapTable.h"
+#import "TR101290/TSTr101290Statistics.h"
+#import "Table/TSProgramAssociationTable.h"
 @class TSDemuxer;
 
 

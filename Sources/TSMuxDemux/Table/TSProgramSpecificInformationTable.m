@@ -6,9 +6,9 @@
 //
 
 #import "TSProgramSpecificInformationTable.h"
-#import "TSPacket.h"
-#import "TSConstants.h"
-#import "TSCrc.h"
+#import "../TSPacket.h"
+#import "../TSConstants.h"
+#import "../TSCrc.h"
 
 @implementation TSProgramSpecificInformationTable
 
