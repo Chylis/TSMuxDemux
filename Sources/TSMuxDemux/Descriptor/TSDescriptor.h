@@ -142,15 +142,29 @@ typedef NS_ENUM(uint8_t, TSDvbDescriptorTag) {
                                                         // 0xFF Reserved for future use
 };
 
-// Defined in ANSI/SCTE 35 - Digital Program Insertion Cueing Message
-// Uses range 0x80 - 0xFE (i.e. of the user defined descriptors)
-typedef NS_ENUM(uint8_t, TSScte35DescriptorTag) {
-    TSScte35CueIdentifierDescriptor                     = 0x8A
-};
-
 typedef NS_ENUM(uint8_t, TSExtensionDescriptorTag) {
     TSExtensionDescriptorTagAc4 = 0x15,
 };
+
+// Defined in ANSI/SCTE 35 - Digital Program Insertion Cueing Message
+// Uses range 0x80 - 0xFE (i.e. of the user defined descriptors)
+typedef NS_ENUM(uint8_t, TSScte35DescriptorTag) {
+    TSScte35DescriptorTagCueIdentifier                  = 0x8A
+};
+
+// Defined in SMPTE ST 2038 - Carriage of Ancillary Data Packets in an MPEG-2 Transport Stream.
+// Used to embed non-audio/video metadata, like:
+// - Closed captions (CEA-608/708)
+// - Timecode
+// - SCTE-104 messages (for ad insertion signals)
+// - Teletext
+// - Audio metadata (like Dolby metadata)
+// - Uses range 0x80 - 0xFE (i.e. of the user defined descriptors)
+typedef NS_ENUM(uint8_t, TSST2038DescriptorTag) {
+    TSST2038DescriptorTagAncData                        = 0xC4
+};
+
+
 
 
 @interface TSDescriptor: NSObject

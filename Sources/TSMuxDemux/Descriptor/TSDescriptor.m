@@ -30,7 +30,7 @@
         case TSDescriptorTagISO639Language:
             descriptorClass = [TSISO639LanguageDescriptor class];
             break;
-        case TSScte35CueIdentifierDescriptor:
+        case TSScte35DescriptorTagCueIdentifier:
             descriptorClass = [TSCueIdentifierDescriptor class];
             break;
     }
@@ -327,8 +327,13 @@
     }
     
     switch ((TSScte35DescriptorTag)descriptorTag) {
-        case TSScte35CueIdentifierDescriptor:
-            return @"SCTE 35 Cue id";
+        case TSScte35DescriptorTagCueIdentifier:
+            return @"SCTE-35 Cue id";
+    }
+    
+    switch ((TSST2038DescriptorTag)descriptorTag) {
+        case TSST2038DescriptorTagAncData:
+            return @"ST-2038 Anc data";
     }
     
     return [NSString stringWithFormat:@"Private: 0x%02x", descriptorTag];
