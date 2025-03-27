@@ -1,5 +1,5 @@
 //
-//  TSCueIdentifierDescriptor.h
+//  TSScte35CueIdentifierDescriptor.h
 //  TSMuxDemux
 //
 //  Created by Magnus G Eriksson on 2021-04-06.
@@ -7,7 +7,7 @@
 //
 
 #import <Foundation/Foundation.h>
-#import "TSDescriptor.h"
+#import "../TSDescriptor.h"
 
 typedef NS_ENUM(uint8_t, TSScte35CueStreamType) {
     TSScte35CueStreamTypeSpliceInsertOrNullOrSchedule = 0x00,
@@ -20,7 +20,7 @@ typedef NS_ENUM(uint8_t, TSScte35CueStreamType) {
 };
 
 // This descriptor is defined in ANSI/SCTE 35 - Digital Program Insertion Cueing Message
-@interface TSCueIdentifierDescriptor: TSDescriptor
+@interface TSScte35CueIdentifierDescriptor: TSDescriptor
 
 @property(nonatomic, readonly) uint8_t cueStreamType;
 
