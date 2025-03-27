@@ -9,6 +9,7 @@
 #import <Foundation/Foundation.h>
 #import "TSAccessUnit.h"
 @class TSPacket;
+@class TSDescriptor;
 @class TSElementaryStreamBuilder;
 
 @protocol TSElementaryStreamBuilderDelegate
@@ -23,12 +24,12 @@
 
 @property(nonatomic, readonly) uint16_t pid;
 @property(nonatomic, readonly) TSStreamType streamType;
-@property(nonatomic, readonly) uint8_t descriptorTag;
+@property(nonatomic, readonly, nullable) NSArray<TSDescriptor*>* descriptors;
 
 -(instancetype _Nonnull)initWithDelegate:(id<TSElementaryStreamBuilderDelegate> _Nullable)delegate
                                      pid:(uint16_t)pid
                               streamType:(TSStreamType)streamType
-                           descriptorTag:(uint8_t)descriptorTag;
+                             descriptors:(NSArray<TSDescriptor*>* _Nullable) descriptors;
 
 -(void)addTsPacket:(TSPacket* _Nonnull)tsPacket;
 

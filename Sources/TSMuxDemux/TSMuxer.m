@@ -90,18 +90,20 @@
         self.firstSentPcr = kCMTimeInvalid;
         
         const uint8_t streamTypeNotApplicable = 0;
-        _pat = [[TSProgramAssociationTable alloc] initWithTransportStreamId:0 programmes:@{ @(PROGRAM_NUMBER): @(_settings.pmtPid)}];
+        _pat = [[TSProgramAssociationTable alloc] initWithTransportStreamId:0
+                                                                 programmes:@{ @(PROGRAM_NUMBER): @(_settings.pmtPid)}];
         _patTrack = [[TSElementaryStream alloc] initWithPid:PID_PAT
                                                  streamType:streamTypeNotApplicable
-                                              descriptorTag:0];
+                                                descriptors:nil];
         
         _pmt = [[TSProgramMapTable alloc] initWithProgramNumber:PROGRAM_NUMBER
                                                   versionNumber:0
                                                          pcrPid:0
+                                             programDescriptors:nil
                                               elementaryStreams:[NSSet set]];
         _pmtTrack = [[TSElementaryStream alloc] initWithPid:settings.pmtPid
                                                  streamType:streamTypeNotApplicable
-                                              descriptorTag:0];
+                                                descriptors:nil];
         
         _accessUnits = [NSMutableArray array];
     }
@@ -134,7 +136,7 @@
     if (!track) {
         track = [[TSElementaryStream alloc] initWithPid:accessUnit.pid
                                              streamType:accessUnit.streamType
-                                          descriptorTag:accessUnit.descriptorTag];
+                                            descriptors:accessUnit.descriptors];
         [self.pmt addElementaryStream:track];
     }
     

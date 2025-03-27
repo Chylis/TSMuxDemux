@@ -25,14 +25,14 @@
 -(instancetype _Nonnull)initWithDelegate:(id<TSElementaryStreamBuilderDelegate>)delegate
                                      pid:(uint16_t)pid
                               streamType:(TSStreamType)streamType
-                           descriptorTag:(uint8_t)descriptorTag
+                             descriptors:(NSArray<TSDescriptor *> * _Nullable)descriptors
 {
     self = [super init];
     if (self) {
         _delegate = delegate;
         _pid = pid;
         _streamType = streamType;
-        _descriptorTag = descriptorTag;
+        _descriptors = descriptors;
         _lastPacket = nil;
     }
     return self;
@@ -61,7 +61,7 @@
                                                                      dts:self.dts
                                                          isDiscontinuous:self.isDiscontinuous
                                                               streamType:self.streamType
-                                                           descriptorTag:self.descriptorTag
+                                                             descriptors:self.descriptors
                                                           compressedData:self.collectedData];
             [self.delegate streamBuilder:self didBuildAccessUnit:accessUnit];
         }
@@ -70,7 +70,7 @@
         TSAccessUnit *firstAccessUnit = [TSAccessUnit initWithTsPacket:tsPacket
                                                                    pid:self.pid
                                                             streamType:self.streamType
-                                                         descriptorTag:self.descriptorTag];
+                                                         descriptors:self.descriptors];
         self.pts = firstAccessUnit.pts;
         self.dts = firstAccessUnit.dts;
         self.isDiscontinuous = firstAccessUnit.isDiscontinuous;

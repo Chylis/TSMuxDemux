@@ -10,6 +10,7 @@
 #import "TSPacket.h"
 #import "TSConstants.h"
 #import "TSTimeUtil.h"
+#import "Descriptor/TSDescriptor.h"
 
 #pragma mark - TSAccessUnit
 
@@ -22,7 +23,7 @@ static const uint8_t TIMESTAMP_LENGTH = 5; // A timestamp (pts/dts) is a 33-bit 
                                 dts:(CMTime)dts
                     isDiscontinuous:(BOOL)isDiscontinuous
                          streamType:(TSStreamType)streamType
-                      descriptorTag:(uint8_t)descriptorTag
+                        descriptors:(NSArray<TSDescriptor *> * _Nullable)descriptors
                      compressedData:(NSData * _Nonnull)compressedData
 {
     self = [super init];
@@ -32,7 +33,7 @@ static const uint8_t TIMESTAMP_LENGTH = 5; // A timestamp (pts/dts) is a 33-bit 
         _dts = dts;
         _isDiscontinuous = isDiscontinuous;
         _streamType = streamType;
-        _descriptorTag = descriptorTag;
+        _descriptors = descriptors;
         _compressedData = compressedData;
     }
     return self;
@@ -41,7 +42,7 @@ static const uint8_t TIMESTAMP_LENGTH = 5; // A timestamp (pts/dts) is a 33-bit 
 +(instancetype _Nullable)initWithTsPacket:(TSPacket* _Nonnull)packet
                                       pid:(uint16_t)pid
                                streamType:(TSStreamType)streamType
-                            descriptorTag:(uint8_t)descriptorTag
+                              descriptors:(NSArray<TSDescriptor *> * _Nullable)descriptors
 {
     
     uint32_t bytes1To4 = 0x00;
@@ -99,7 +100,7 @@ static const uint8_t TIMESTAMP_LENGTH = 5; // A timestamp (pts/dts) is a 33-bit 
                                          dts:dts == 0 ? kCMTimeInvalid : CMTimeMake(dts, TS_TIMESTAMP_TIMESCALE)
                              isDiscontinuous:packet.adaptationField.discontinuityFlag
                                   streamType:streamType
-                               descriptorTag:descriptorTag
+                                 descriptors:descriptors
                               compressedData:data];
 }
 
@@ -216,29 +217,31 @@ static const uint8_t TIMESTAMP_LENGTH = 5; // A timestamp (pts/dts) is a 33-bit 
 
 -(BOOL)isAudioStreamType
 {
-    return [TSAccessUnit isAudioStreamType:self.streamType descriptorTag:self.descriptorTag];
+    return [TSAccessUnit isAudioStreamType:self.streamType
+                               descriptors:self.descriptors];
 }
-+(BOOL)isAudioStreamType:(TSStreamType)streamType descriptorTag:(uint8_t)descriptorTag
+
++(BOOL)isAudioStreamType:(TSStreamType)streamType
+             descriptors:(NSArray<TSDescriptor*>* _Nullable)descriptors
 {
     switch (streamType) {
-        case TSStreamTypeH264:      return NO;
-        case TSStreamTypeH265:      return NO;
-        case TSStreamTypeADTSAAC:   return YES;
-        case TSStreamTypePrivateData: return [TSAccessUnit isAudioDescriptorTag:descriptorTag];
+        case TSStreamTypeH264:
+            return NO;
+        case TSStreamTypeH265:
+            return NO;
+        case TSStreamTypeADTSAAC:
+            return YES;
+        case TSStreamTypePrivateData: {
+            for (const TSDescriptor *d in descriptors) {
+                if ([TSDescriptor isAudioDescriptor:d.descriptorTag]) {
+                    return YES;
+                }
+            }
+        }
     }
     return NO;
 }
 
-+(BOOL)isAudioDescriptorTag:(uint8_t)descriptorTag
-{
-    // FIXME MG: Could be AC4 - if TSDescriptorTagExtension: check the next byte (descriptor_tag_extension).
-    return descriptorTag == TSDescriptorTagAudioStream
-    || descriptorTag == TSDescriptorTagMPEG4Audio
-    || descriptorTag == TSDescriptorTagMPEG2AACAudio
-    || descriptorTag == TSDvbDescriptorTagAAC
-    || descriptorTag == TSDvbDescriptorTagAC3
-    || descriptorTag == TSDvbDescriptorTagEnhancedAC3;
-}
 
 
 -(BOOL)isVideoStreamType
@@ -259,276 +262,26 @@ static const uint8_t TIMESTAMP_LENGTH = 5; // A timestamp (pts/dts) is a 33-bit 
 
 -(NSString*)streamTypeDescription
 {
-    return [TSAccessUnit streamTypeDescription:self.streamType
-                                 descriptorTag:self.descriptorTag];
+    return [TSAccessUnit streamTypeDescription:self.streamType];
 }
 +(NSString*)streamTypeDescription:(TSStreamType)streamType
-                    descriptorTag:(uint8_t)descriptorTag
 {
+    NSString *type = [NSString stringWithFormat:@"0x%02x", streamType];
     switch (streamType) {
         case TSStreamTypeADTSAAC:
-            return @"ADTS AAC";
+            type = @"ADTS AAC";
+            break;
         case TSStreamTypeH264:
-            return @"H264";
+            type = @"H264";
+            break;
         case TSStreamTypeH265:
-            return @"H265";
+            type = @"H265";
+            break;
         case TSStreamTypePrivateData:
-            return [NSString stringWithFormat:@"Priv. Tag: '%@'",
-                    [TSAccessUnit descriptorTagDescription:descriptorTag]];
+            type = @"PES private data";
+            break;
     }
-    
-    return [NSString stringWithFormat:@"? '0x%02x'", streamType];
-}
-
-+(NSString*)descriptorTagDescription:(uint8_t)descriptorTag
-{
-    switch ((TSH2220DescriptorTag)descriptorTag) {
-        case TSDescriptorTagReserved:
-            return @"Reserved0";
-        case TSDescriptorTagForbidden:
-            return @"Forbidden";
-        case TSDescriptorTagVideoStream:
-            return @"Video stream";
-        case TSDescriptorTagAudioStream:
-            return @"Audio stream";
-        case TSDescriptorTagHierarchy:
-            return @"Hierarchy";
-        case TSDescriptorTagRegistration:
-            return @"Registration";
-        case TSDescriptorTagDataStreamAlignment:
-            return @"Data stream alignment";
-        case TSDescriptorTagTargetBackgroundGrid:
-            return @"Target background grid";
-        case TSDescriptorTagVideoWindow:
-            return @"video window";
-        case TSDescriptorTagCA:
-            return @"CA";
-        case TSDescriptorTagISO639Language:
-            return @"ISO639 language";
-        case TSDescriptorTagSystemClock:
-            return @"System clock";
-        case TSDescriptorTagMultiplexBufferUtilization:
-            return @"Multiplex buffer utilization";
-        case TSDescriptorTagCopyright:
-            return @"Copyright";
-        case TSDescriptorTagMaximumBitrate:
-            return @"Maximum bitrate";
-        case TSDescriptorTagPrivateDataIndicator:
-            return @"Private data indicator";
-        case TSDescriptorTagSmoothingBuffer:
-            return @"Smoothing buffer";
-        case TSDescriptorTagSTD:
-            return @"STD";
-        case TSDescriptorTagIBP:
-            return @"IBP";
-        case TSDescriptorTagMPEG4Video:
-            return @"MPEG-4 video";
-        case TSDescriptorTagMPEG4Audio:
-            return @"MPEG-4 audio";
-        case TSDescriptorTagIOD:
-            return @"IOS";
-        case TSDescriptorTagSL:
-            return @"SL";
-        case TSDescriptorTagFMC:
-            return @"FMC";
-        case TSDescriptorTagExternalESId:
-            return @"External ES id";
-        case TSDescriptorTagMuxCode:
-            return @"Mux code";
-        case TSDescriptorTagFmxBufferSize:
-            return @"Fmx buffer size";
-        case TSDescriptorTagMultiplexBuffer:
-            return @"Multiplex buffer";
-        case TSDescriptorTagContentLabeling:
-            return @"Content labeling";
-        case TSDescriptorTagMetadataPointer:
-            return @"Metadata pointer";
-        case TSDescriptorTagMetadata:
-            return @"Tag metadata";
-        case TSDescriptorTagMetadataSTD:
-            return @"Metadata STD";
-        case TSDescriptorTagAVCVideo:
-            return @"AVC video";
-        case TSDescriptorTagIPMP:
-            return @"IPMP";
-        case TSDescriptorTagAVCTimingAndHRD:
-            return @"AVC timing and HRD";
-        case TSDescriptorTagMPEG2AACAudio:
-            return @"MPEG-2 AAC audio";
-        case TSDescriptorTagFlexMuxTiming:
-            return @"Flex mux timing";
-        case TSDescriptorTagMPEG4Text:
-            return @"MPEG-4 text";
-        case TSDescriptorTagMPEG4AudioExtension:
-            return @"MPEG-4 audio extension";
-        case TSDescriptorTagAuxiliaryVideoStream:
-            return @"Auxiliary video stream";
-        case TSDescriptorTagSVCExtension:
-            return @"SVC extension";
-        case TSDescriptorTagMVCExtension:
-            return @"MVC extension";
-        case TSDescriptorTagJ2KVideo:
-            return @"J2K video";
-        case TSDescriptorTagMVCOperationPoint:
-            return @"MVC operation point";
-        case TSDescriptorTagMPEG2StereoscopicVideoFormat:
-            return @"MPEG-2 stereoscopic video format";
-        case TSDescriptorTagStereoscopicProgramInfo:
-            return @"Stereoscopic program info";
-        case TSDescriptorTagStereoscopicVideoInfo:
-            return @"Stereoscopic video info";
-        case TSDescriptorTagTransportProfile:
-            return @"Transport profile";
-        case TSDescriptorTagHEVCVideo:
-            return @"HEVC video";
-        case TSDescriptorTagVVCVideo:
-            return @"VVC video";
-        case TSDescriptorTagEVCVideo:
-            return @"EVC video";
-        case TSDescriptorTagReserved59:
-            return @"Reserved59";
-        case TSDescriptorTagReserved60:
-            return @"Reserved60";
-        case TSDescriptorTagReserved61:
-            return @"Reserved61";
-        case TSDescriptorTagReserved62:
-            return @"Reserved62";
-        case TSDescriptorTagExtension:
-            return @"Extension";
-    }
-    
-    switch ((TSDvbDescriptorTag)descriptorTag) {
-        case TSDvbDescriptorTagNetworkName:
-            return @"Network name";
-        case TSDvbDescriptorTagServiceList:
-            return @"Service list";
-        case TSDvbDescriptorTagStuffing:
-            return @"Stuffing";
-        case TSDvbDescriptorTagSatelliteDeliverySystem:
-            return @"Satellite delivery system";
-        case TSDvbDescriptorTagCableDeliverySystem:
-            return @"Cable delivery system";
-        case TSDvbDescriptorTagVBIData:
-            return @"VBI data";
-        case TSDvbDescriptorTagVBITeletext:
-            return @"VBI teletext";
-        case TSDvbDescriptorTagBouquetName:
-            return @"Bouquet name";
-        case TSDvbDescriptorTagService:
-            return @"Service";
-        case TSDvbDescriptorTagCountryAvailability:
-            return @"Country availability";
-        case TSDvbDescriptorTagLinkage:
-            return @"Linkage";
-        case TSDvbDescriptorTagNVODReference:
-            return @"NVOD reference";
-        case TSDvbDescriptorTagTimeShiftedService:
-            return @"Time shifted service";
-        case TSDvbDescriptorTagShortEvent:
-            return @"Short event";
-        case TSDvbDescriptorTagExtendedEvent:
-            return @"Extended event";
-        case TSDvbDescriptorTagTimeShiftedEvent:
-            return @"Time shifted event";
-        case TSDvbDescriptorTagComponent:
-            return @"Component";
-        case TSDvbDescriptorTagMosaic:
-            return @"Mosaic";
-        case TSDvbDescriptorTagStreamIdentifier:
-            return @"Stream identifier";
-        case TSDvbDescriptorTagCAIdentifier:
-            return @"CA identifier";
-        case TSDvbDescriptorTagContent:
-            return @"Content";
-        case TSDvbDescriptorTagParentalRating:
-            return @"Parental rating";
-        case TSDvbDescriptorTagTeletext:
-            return @"Teletext";
-        case TSDvbDescriptorTagTelephone:
-            return @"Telephone";
-        case TSDvbDescriptorTagLocalTimeOffset:
-            return @"Local time offset";
-        case TSDvbDescriptorTagSubtitling:
-            return @"Subtitling";
-        case TSDvbDescriptorTagTerrestrialDeliverySystem:
-            return @"Terrestrial delivery system";
-        case TSDvbDescriptorTagMultilingualNetworkName:
-            return @"Multilingual network name";
-        case TSDvbDescriptorTagMultilingualBouquetName:
-            return @"Multilingual bouquet name";
-        case TSDvbDescriptorTagMultilingualServiceName:
-            return @"Multilingual service name";
-        case TSDvbDescriptorTagMultilingualComponent:
-            return @"Multilingual component";
-        case TSDvbDescriptorTagPrivateDataSpecifier:
-            return @"Private data specifier";
-        case TSDvbDescriptorTagServiceMove:
-            return @"Service move";
-        case TSDvbDescriptorTagShortSmoothingBuffer:
-            return @"Short smoothing buffer";
-        case TSDvbDescriptorTagFrequencyList:
-            return @"Frequency list";
-        case TSDvbDescriptorTagPartialTransportStream:
-            return @"Partial transport stream";
-        case TSDvbDescriptorTagDataBroadcast:
-            return @"Data broadcast";
-        case TSDvbDescriptorTagScrambling:
-            return @"Scrambling";
-        case TSDvbDescriptorTagDataBroadcastId:
-            return @"Data broadcast id";
-        case TSDvbDescriptorTagTransportStream:
-            return @"Transport stream";
-        case TSDvbDescriptorTagDSNG:
-            return @"DSNG";
-        case TSDvbDescriptorTagPDC:
-            return @"DPC";
-        case TSDvbDescriptorTagAC3:
-            return @"AC-3";
-        case TSDvbDescriptorTagAncillaryData:
-            return @"Ancillary data";
-        case TSDvbDescriptorTagCellList:
-            return @"Cell list";
-        case TSDvbDescriptorTagCellFrequencyLink:
-            return @"Cell frequency link";
-        case TSDvbDescriptorTagAnnouncementSupport:
-            return @"Announcement support";
-        case TSDvbDescriptorTagApplicationSignalling:
-            return @"Application signalling";
-        case TSDvbDescriptorTagAdaptationFieldData:
-            return @"Adaptation field data";
-        case TSDvbDescriptorTagServiceIdentifier:
-            return @"Service identifier";
-        case TSDvbDescriptorTagServiceAvailability:
-            return @"Service availability";
-        case TSDvbDescriptorTagDefaultAuthority:
-            return @"Default authority";
-        case TSDvbDescriptorTagRelatedContent:
-            return @"Related content";
-        case TSDvbDescriptorTagTVAId:
-            return @"TVA id";
-        case TSDvbDescriptorTagContentIdentifier:
-            return @"Content id";
-        case TSDvbDescriptorTagTimeSliceFecIdentifier:
-            return @"Time slice fec id";
-        case TSDvbDescriptorTagECMRepetitionRate:
-            return @"ECM repetition rate";
-        case TSDvbDescriptorTagS2SatelliteDeliverySystem:
-            return @"S2 satellite delivery system";
-        case TSDvbDescriptorTagEnhancedAC3:
-            return @"Enhanced AC-3";
-        case TSDvbDescriptorTagDTS:
-            return @"DTS";
-        case TSDvbDescriptorTagAAC:
-            return @"AAC";
-        case TSDvbDescriptorTagXAITLocation:
-            return @"XAIT location";
-        case TSDvbDescriptorTagFTAContentManagement:
-            return @"FTA content management";
-        case TSDvbDescriptorTagExtension:
-            return @"Extension";
-    }
-    
-    return [NSString stringWithFormat:@"Unknown '0x%02x'", descriptorTag];
+    return [NSString stringWithFormat:@"%@", type];
 }
 
 /// The stream_id may be set to any valid value which correctly describes the elementary stream type as defined in Table 2-22.
@@ -548,12 +301,10 @@ static const uint8_t TIMESTAMP_LENGTH = 5; // A timestamp (pts/dts) is a 33-bit 
             return 0xE0;
             
         case TSStreamTypeH265:
-            // FIXME: What stream type to use for HEVC?
             return 0xE0;
             
         case TSStreamTypePrivateData:
-            // FIXME MG: Return correct streamId when muxing stream type PrivateData here... 
-            return 0x00;
+            return 0xBD; // Private_stream_1
     }
 }
 

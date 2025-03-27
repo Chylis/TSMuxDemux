@@ -9,6 +9,9 @@
 #import "TSProgramMapTable.h"
 #import "TSElementaryStream.h"
 
+#import "Descriptor/TSDescriptor.h"
+#import "Descriptor/TSRegistrationDescriptor.h"
+
 #define ELEMENTARY_STREAM_BYTE_LENGTH 5
 
 @implementation TSProgramMapTable
@@ -18,6 +21,7 @@
 -(instancetype _Nullable)initWithProgramNumber:(uint16_t)programNumber
                                  versionNumber:(uint8_t)versionNumber
                                         pcrPid:(uint16_t)pcrPid
+                            programDescriptors:(NSArray<TSDescriptor*>* _Nullable)programDescriptors
                              elementaryStreams:(NSSet<TSElementaryStream*>* _Nonnull)elementaryStreams
 {
     
@@ -25,6 +29,7 @@
     if (self) {
         _pcrPid = pcrPid;
         _programInfoLength = 0;
+        _programDescriptors = programDescriptors;
         _elementaryStreams = elementaryStreams;
         _psi = [[TSProgramSpecificInformationTable alloc] initWithTableId:TABLE_ID_PMT
                                                                 byte4And5:programNumber
@@ -126,29 +131,41 @@
         uint16_t bytes3And4 = 0x0;
         [psi.sectionData getBytes:&bytes3And4 range:NSMakeRange(offset, 2)];
         offset +=2;
-        // programInfoLength specifies the number of bytes of the descriptors immediately following the program_info_length field.
+        // programInfoLength specifies the number of bytes of the program descriptors immediately following the program_info_length field.
         _programInfoLength = CFSwapInt16BigToHost(bytes3And4) & (uint16_t)0x3FF;
         
-        NSUInteger descriptorsRemainingLength = _programInfoLength;
-        while (descriptorsRemainingLength > 0) {
+        NSMutableArray<TSDescriptor*> *programDescriptors = [NSMutableArray array];
+        NSUInteger programDescriptorsRemainingLength = _programInfoLength;
+        while (programDescriptorsRemainingLength > 0) { // program-info loop begin
             uint8_t descriptorTag = 0x0;
             [psi.sectionData getBytes:&descriptorTag range:NSMakeRange(offset, 1)];
             offset++;
-            descriptorsRemainingLength--;
+            programDescriptorsRemainingLength--;
             
             // descriptorLength specifies the number of bytes of the descriptor immediately following the descriptor_length field.
             uint8_t descriptorLength = 0x0;
             [psi.sectionData getBytes:&descriptorLength range:NSMakeRange(offset, 1)];
             offset++;
-            descriptorsRemainingLength--;
+            programDescriptorsRemainingLength--;
             
-            // Skip remaining fields...
+            NSData *descriptorPayload = descriptorLength > 0
+            ? [NSData dataWithBytesNoCopy:(void*)[psi.sectionData bytes] + offset
+                                   length:descriptorLength
+                             freeWhenDone:NO]
+            : nil;
+            TSDescriptor *programDescriptor = [TSDescriptor makeWithTag:descriptorTag
+                                                                 length:descriptorLength
+                                                                   data:descriptorPayload];
             offset += descriptorLength;
-            descriptorsRemainingLength -= descriptorLength;
-        }
+            programDescriptorsRemainingLength -= descriptorLength;
+            [programDescriptors addObject:programDescriptor];
+            
+        } // program-info loop end
+        _programDescriptors = programDescriptors;
         
-        NSMutableSet *streams = [NSMutableSet set];
-        while (offset < psi.sectionData.length) {
+        
+        NSMutableSet *elementaryStreams = [NSMutableSet set];
+        while (offset < psi.sectionData.length) { // elementary stream loop begin
             uint8_t esByte1 = 0x0;
             [psi.sectionData getBytes:&esByte1 range:NSMakeRange(offset, 1)];
             offset++;
@@ -165,33 +182,43 @@
             // esInfoLength specifies the number of bytes of the descriptors of the associated program element immediately following the ES_info_length field.
             const uint16_t esInfoLength = CFSwapInt16BigToHost(esBytes4And5) & (uint16_t)0x3FF;
             NSUInteger esInfoRemainingLength = esInfoLength;
-
-            uint8_t esDescriptorTag = 0;
-            while (esInfoRemainingLength > 0) {
-                uint8_t byte1 = 0x0;
-                [psi.sectionData getBytes:&byte1 range:NSMakeRange(offset, 1)];
-                offset++;
-                esInfoRemainingLength--;
-                esDescriptorTag = byte1;
-                
-                // descriptorLength specifies the number of bytes of the descriptor immediately following the descriptor_length field.
-                uint8_t descriptorLength = 0x0;
-                [psi.sectionData getBytes:&descriptorLength range:NSMakeRange(offset, 1)];
-                offset++;
-                esInfoRemainingLength--;
-
-                // Skip remaining fields...
-                // TODO: Parse elemental stream descriptors...
-                offset += descriptorLength;
-                esInfoRemainingLength -= descriptorLength;
+            
+            NSMutableArray<TSDescriptor*> *esDescriptors = nil;
+            if (esInfoLength > 0) {
+                esDescriptors = [NSMutableArray array];
+                while (esInfoRemainingLength > 0) { // es-descriptor loop begin
+                    uint8_t descriptorTag = 0x0;
+                    [psi.sectionData getBytes:&descriptorTag range:NSMakeRange(offset, 1)];
+                    offset++;
+                    esInfoRemainingLength--;
+                    
+                    // descriptorLength specifies the number of bytes of the descriptor immediately following the descriptor_length field.
+                    uint8_t descriptorLength = 0x0;
+                    [psi.sectionData getBytes:&descriptorLength range:NSMakeRange(offset, 1)];
+                    offset++;
+                    esInfoRemainingLength--;
+                    
+                    NSData *descriptorPayload = descriptorLength > 0
+                    ? [NSData dataWithBytesNoCopy:(void*)[psi.sectionData bytes] + offset
+                                           length:descriptorLength
+                                     freeWhenDone:NO]
+                    : nil;
+                    TSDescriptor *esDescriptor = [TSDescriptor makeWithTag:descriptorTag
+                                                                    length:descriptorLength
+                                                                      data:descriptorPayload];
+                    offset += descriptorLength;
+                    esInfoRemainingLength -= descriptorLength;
+                    [esDescriptors addObject:esDescriptor];
+                } // es-descriptor loop end
             }
-
+            
             TSElementaryStream *stream = [[TSElementaryStream alloc] initWithPid:esPid
                                                                       streamType:esStreamType
-                                                                   descriptorTag:esDescriptorTag];
-            [streams addObject:stream];
-        }
-        _elementaryStreams = streams;
+                                                                     descriptors:esDescriptors];
+            [elementaryStreams addObject:stream];
+        } // ES-stream loop end
+     
+        _elementaryStreams = elementaryStreams;
     }
     return self;
 }
@@ -235,7 +262,7 @@
     return nil;
 }
 
-#pragma mark - Equatable
+#pragma mark - Overridden
 
 -(BOOL)isEqual:(id)object
 {
@@ -253,6 +280,33 @@
     return self.programNumber == pmt.programNumber
     && self.versionNumber == pmt.versionNumber
     && [self.elementaryStreams isEqual:pmt.elementaryStreams];
+}
+
+
+-(NSString*)description
+{
+    NSMutableString *progDescriptors = [NSMutableString stringWithFormat:@"%@", self.programDescriptors.count > 0 ? @"" : @"None"];
+        
+    BOOL first = YES;
+    for (TSDescriptor *d in self.programDescriptors) {
+        if (!first) {
+            [progDescriptors appendString:@", "];
+        }
+        [progDescriptors appendString:[NSString stringWithFormat:@"%@", [d tagDescription]]];
+        first = NO;
+    }
+    
+    NSSortDescriptor *pidSorter = [NSSortDescriptor sortDescriptorWithKey:@"pid" ascending:YES];
+    NSArray *sortedStreams = [[self.elementaryStreams allObjects]
+                              sortedArrayUsingDescriptors:@[pidSorter]];
+    
+    return [NSString stringWithFormat:
+            @"{ v: %u, program: %hu, pcrPid: %hu, tags: [%@], streams: %@ }",
+            self.versionNumber,
+            self.programNumber,
+            self.pcrPid,
+            progDescriptors,
+            sortedStreams];
 }
 
 
