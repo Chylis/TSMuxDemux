@@ -14,7 +14,7 @@
 
 @protocol TSPsiTableBuilderDelegate
 -(void)tableBuilder:(TSPsiTableBuilder* _Nonnull)builder
-      didBuildTable:(TSProgramSpecificInformationTable* _Nonnull)table;
+     didBuildTable:(TSProgramSpecificInformationTable* _Nonnull)table;
 @end
 
 /// A class that constructs an elementary stream by collecting access units that belong together.
