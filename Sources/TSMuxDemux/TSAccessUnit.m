@@ -229,7 +229,13 @@ static const uint8_t TIMESTAMP_LENGTH = 5; // A timestamp (pts/dts) is a 33-bit 
             return NO;
         case TSStreamTypeH265:
             return NO;
+        case TSStreamTypeMPEG1Audio:
+            return YES;
+        case TSStreamTypeMPEG2Audio:
+            return YES;
         case TSStreamTypeADTSAAC:
+            return YES;
+        case TSStreamTypeLATMAAC:
             return YES;
         case TSStreamTypePrivateData: {
             for (const TSDescriptor *d in descriptors) {
@@ -251,9 +257,12 @@ static const uint8_t TIMESTAMP_LENGTH = 5; // A timestamp (pts/dts) is a 33-bit 
 +(BOOL)isVideoStreamType:(uint8_t)streamType
 {
     switch (streamType) {
-        case TSStreamTypeH264:      return YES;
-        case TSStreamTypeH265:      return YES;
-        case TSStreamTypeADTSAAC:   return NO;
+        case TSStreamTypeH264:       return YES;
+        case TSStreamTypeH265:       return YES;
+        case TSStreamTypeMPEG1Audio: return NO;
+        case TSStreamTypeMPEG2Audio: return NO;
+        case TSStreamTypeADTSAAC:    return NO;
+        case TSStreamTypeLATMAAC:    return NO;
         case TSStreamTypePrivateData: return NO;
     }
     return NO;
@@ -268,8 +277,17 @@ static const uint8_t TIMESTAMP_LENGTH = 5; // A timestamp (pts/dts) is a 33-bit 
 {
     NSString *type = nil;
     switch ((TSStreamType)streamType) {
+        case TSStreamTypeMPEG1Audio:
+            type = @"MPEG-1 Audio";
+            break;
+        case TSStreamTypeMPEG2Audio:
+            type = @"MPEG-2 Audio";
+            break;
         case TSStreamTypeADTSAAC:
             type = @"ADTS AAC";
+            break;
+        case TSStreamTypeLATMAAC:
+            type = @"LATM AAC";
             break;
         case TSStreamTypeH264:
             type = @"H264";
