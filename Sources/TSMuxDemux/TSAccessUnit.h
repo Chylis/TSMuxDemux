@@ -14,9 +14,12 @@
 // Descriptor tags defined in ISO/IEC 13818-1 / ITU-T H.222.0
 // https://en.wikipedia.org/wiki/Program-specific_information#Elementary_stream_types
 typedef NS_ENUM(uint8_t, TSStreamType) {
+    TSStreamTypeMPEG1Audio                           = 0x03, // ISO/IEC 11172-3 (MPEG-1 Audio Layer I, II, III)
+    TSStreamTypeMPEG2Audio                           = 0x04, // ISO/IEC 13818-3 (MPEG-2 Audio)
     // TSStreamTypePrivateData type of data is determined by descriptor tags (TSDescriptorTag)
     TSStreamTypePrivateData                          = 0x06,
-    TSStreamTypeADTSAAC                              = 0x0f,
+    TSStreamTypeADTSAAC                              = 0x0f, // ISO/IEC 13818-7 (AAC with ADTS transport)
+    TSStreamTypeLATMAAC                              = 0x11, // ISO/IEC 14496-3 (AAC with LATM transport)
     TSStreamTypeH264                                 = 0x1b,
     TSStreamTypeH265                                 = 0x24,
 };
