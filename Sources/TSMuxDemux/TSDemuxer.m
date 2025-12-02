@@ -157,7 +157,7 @@
                 // PSI
                 if ([programNumber isEqualToNumber:@(PROGRAM_NUMBER_NETWORK_INFO)]) {
                     // TODO Parse...
-                    NSLog(@"Received Network Info table");
+                    //NSLog(@"Received Network Info table");
                 } else {
                     // PMT
                     TSPsiTableBuilder *builder = [self.tableBuilders objectForKey:@(pid)];
@@ -194,7 +194,7 @@
         [self updatePmt:[[TSProgramMapTable alloc] initWithPSI:table]];
     } else if (table.tableId == TABLE_ID_DVB_SDT_ACTUAL_TS) {
         TSDvbServiceDescriptionTable *sdt = [[TSDvbServiceDescriptionTable alloc] initWithPSI:table];
-        NSLog(@"Received pid: %u, table: %@", builder.pid, sdt.description);
+        //NSLog(@"Received pid: %u, table: %@", builder.pid, sdt.description);
     } else {
         NSLog(@"Received unhandles PSI table pid: %u, tableId: %u", builder.pid, table.tableId);
     }

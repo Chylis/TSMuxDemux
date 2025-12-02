@@ -83,7 +83,7 @@
     } else {
         // Continuation of PES packet
         if (!self.collectedData) {
-            NSLog(@"TSESStreamBuilder: Waiting for PUSI=true for pid %u - discarding", self.pid);
+            //NSLog(@"TSESStreamBuilder: Waiting for PUSI=true for pid %u - discarding", self.pid);
             return;
         }
         // Here we assume the entire payload is part of the PES continuation.
