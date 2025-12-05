@@ -57,6 +57,9 @@ NSUInteger const PID_NULL_PACKET = 0x1FFF;
 
 NSUInteger const PROGRAM_NUMBER_NETWORK_INFO = 0x00;
 
+// TR 101 290 thresholds
+uint64_t const TR101290_PAT_PMT_INTERVAL_MS = 500;
+uint64_t const TR101290_PID_INTERVAL_MS = 5000;
 
 @implementation PidUtil
 

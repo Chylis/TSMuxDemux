@@ -10,8 +10,11 @@
 #import "TSConstants.h"
 #import "TSPacket.h"
 #import "TR101290/TSTr101290Analyzer.h"
+#import "TR101290/TSTr101290AnalyzeContext.h"
+#import "TR101290/TSTr101290CompletedSection.h"
 #import "Table/TSProgramAssociationTable.h"
 #import "Table/TSProgramMapTable.h"
+#import "Table/TSProgramSpecificInformationTable.h"
 #import "Table/DVB/TSDvbServiceDescriptionTable.h"
 #import "TSAccessUnit.h"
 #import "TSElementaryStream.h"
@@ -24,6 +27,10 @@
 @property(nonatomic, nonnull) TSTr101290Analyzer *tsPacketAnalyzer;
 @property(nonatomic, nonnull) NSMutableDictionary<Pid, TSPsiTableBuilder*> *tableBuilders;
 @property(nonatomic, nonnull) NSMutableDictionary<Pid, TSElementaryStreamBuilder*> *streamBuilders;
+
+// Temporary storage for completed sections (set in callback, cleared after analysis)
+// Multiple sections can complete from a single packet
+@property(nonatomic, nonnull) NSMutableArray<TSTr101290CompletedSection*> *pendingCompletedSections;
 
 @end
 
@@ -39,9 +46,10 @@
         self.delegate = delegate;
         self.streamBuilders = [NSMutableDictionary dictionary];
         self.tsPacketAnalyzer = [TSTr101290Analyzer new];
-        
+        self.pendingCompletedSections = [NSMutableArray array];
+
         _pmts = [NSMutableDictionary dictionary];
-        
+
         self.tableBuilders = [NSMutableDictionary dictionary];
 
     }
@@ -111,6 +119,22 @@
     return nil;
 }
 
+/// Returns PMTs keyed by their PID (for TR101290 analysis)
+-(NSDictionary<NSNumber*, TSProgramMapTable*>*)pmtsByPid
+{
+    if (!self.pat) {
+        return @{};
+    }
+    NSMutableDictionary<NSNumber*, TSProgramMapTable*> *result = [NSMutableDictionary dictionary];
+    [self.pat.programmes enumerateKeysAndObjectsUsingBlock:^(NSNumber *programNumber, NSNumber *pmtPid, BOOL *stop) {
+        TSProgramMapTable *pmt = _pmts[programNumber];
+        if (pmt) {
+            result[pmtPid] = pmt;
+        }
+    }];
+    return result;
+}
+
 
 -(void)demux:(NSData* _Nonnull)chunk dataArrivalHostTimeNanos:(uint64_t)dataArrivalHostTimeNanos
 {
@@ -172,12 +196,15 @@
             }
         }
         
-        // FIXME MG: Analyze first
-        /* [self.tsPacketAnalyzer analyzeTsPacket:tsPacket
-         pat:self.pat
-         pmt:pmt
-         dataArrivalTimeMs:dataArrivalHostTimeNanos / 1000000];
-         */
+        TSTr101290AnalyzeContext *context = [[TSTr101290AnalyzeContext alloc]
+                                             initWithPat:self.pat
+                                             pmts:[self pmtsByPid]
+                                             nowMs:dataArrivalHostTimeNanos / 1000000
+                                             completedSections:[self.pendingCompletedSections copy]];
+        [self.tsPacketAnalyzer analyzeTsPacket:tsPacket context:context];
+
+        // Clear pending sections after analysis
+        [self.pendingCompletedSections removeAllObjects];
         
         if (isPes) {
             TSElementaryStreamBuilder *builder = [self.streamBuilders objectForKey:@(pid)];
@@ -188,6 +215,10 @@
 
 -(void)tableBuilder:(TSPsiTableBuilder *)builder didBuildTable:(TSProgramSpecificInformationTable *)table
 {
+    // Store completed section for TR101290 analysis (multiple sections can complete per packet)
+    TSTr101290CompletedSection *completed = [[TSTr101290CompletedSection alloc] initWithSection:table pid:builder.pid];
+    [self.pendingCompletedSections addObject:completed];
+
     if (table.tableId == TABLE_ID_PAT) {
         self.pat = [[TSProgramAssociationTable alloc] initWithPSI:table];
     } else if (table.tableId == TABLE_ID_PMT) {
@@ -196,7 +227,7 @@
         TSDvbServiceDescriptionTable *sdt = [[TSDvbServiceDescriptionTable alloc] initWithPSI:table];
         //NSLog(@"Received pid: %u, table: %@", builder.pid, sdt.description);
     } else {
-        NSLog(@"Received unhandles PSI table pid: %u, tableId: %u", builder.pid, table.tableId);
+        NSLog(@"Received unhandled PSI table pid: %u, tableId: %u", builder.pid, table.tableId);
     }
 }
 
