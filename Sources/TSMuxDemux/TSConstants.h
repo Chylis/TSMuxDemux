@@ -59,6 +59,10 @@ FOUNDATION_EXPORT NSUInteger const PID_NULL_PACKET;
 
 FOUNDATION_EXPORT NSUInteger const PROGRAM_NUMBER_NETWORK_INFO;
 
+// TR 101 290 thresholds (in milliseconds)
+FOUNDATION_EXPORT uint64_t const TR101290_PAT_PMT_INTERVAL_MS;  // PAT/PMT must occur every 500ms
+FOUNDATION_EXPORT uint64_t const TR101290_PID_INTERVAL_MS;      // Video/audio PID must occur every 5s
+
 @interface PidUtil : NSObject
 +(BOOL)isCustomPidInvalid:(uint16_t)pid;
 +(BOOL)isReservedPid:(uint16_t)pid;

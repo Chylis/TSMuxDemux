@@ -7,17 +7,14 @@
 
 #import <Foundation/Foundation.h>
 @class TSPacket;
-@class TSProgramMapTable;
-@class TSProgramAssociationTable;
 @class TSTr101290Statistics;
+@class TSTr101290AnalyzeContext;
 
 @interface TSTr101290Analyzer : NSObject
 
 @property(nonatomic, strong, readonly) TSTr101290Statistics * _Nonnull stats;
 
 -(void)analyzeTsPacket:(TSPacket* _Nonnull)tsPacket
-                   pat:(TSProgramAssociationTable* _Nullable)pat
-                   pmt:(TSProgramMapTable* _Nullable)pmt
-     dataArrivalTimeMs:(uint64_t)dataArrivalTimeMs;
+               context:(TSTr101290AnalyzeContext* _Nonnull)context;
 
 @end

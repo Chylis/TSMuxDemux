@@ -6,12 +6,16 @@
 //
 
 #import "TSTr101290Analyzer.h"
+#import "TSTr101290AnalyzeContext.h"
+#import "TSTr101290CompletedSection.h"
 #import "TSTr101290Statistics.h"
 #import "../TSConstants.h"
 #import "../Table/TSProgramAssociationTable.h"
 #import "../Table/TSProgramMapTable.h"
+#import "../Table/TSProgramSpecificInformationTable.h"
 #import "../TSPacket.h"
-#import "../TSTimeUtil.h"
+#import "../TSElementaryStream.h"
+#import "../Descriptor/TSISO639LanguageDescriptor.h"
 
 #pragma mark - TSContinuityCounter
 
@@ -59,7 +63,7 @@
     uint8_t nextExpectedCc = [self nextContinuityCounter:lastPacket.header.continuityCounter];
     
     if (isExpectingIncrementedCC && currentPacket.header.continuityCounter != nextExpectedCc) {
-        BOOL tooManyDuplicates = secondLastPacket.header.continuityCounter == lastPacket.header.continuityCounter;
+        BOOL tooManyDuplicates = secondLastPacket && secondLastPacket.header.continuityCounter == lastPacket.header.continuityCounter;
         if (!isDuplicate) {
             return [NSString stringWithFormat:@"Got %u but expected incremented (%u) or duplicate CC (%u)",
                     currentPacket.header.continuityCounter,
@@ -93,18 +97,23 @@
 {
     uint64_t mNumConsecutiveSyncBytes;
     uint64_t mNumConsecutiveCorruptedSyncBytes;
-    
-    // Key = pid,
-    // Value = timestamp describing when the pid was last encountered
+
+    // Key = pid, Value = timestamp when a valid section was last completed on this PID
+    // For PAT: tracks when tableId 0x00 was last seen on PID 0x0000
+    // For PMT: tracks when tableId 0x02 was last seen on each PMT PID
+    NSMutableDictionary<NSNumber*, NSNumber*> * _Nonnull mSectionLastSeenMsMap;
+
+    // Key = pid, Value = timestamp when interval error was last reported (to avoid flooding)
+    NSMutableDictionary<NSNumber*, NSNumber*> * _Nonnull mIntervalErrorLastReportedMsMap;
+
+    // Key = pid, Value = timestamp when this PID was last seen (for PID error check)
     NSMutableDictionary<NSNumber*, NSNumber*> * _Nonnull mPidLastSeenMsMap;
-    
-    // Key = pid,
-    // Value = timestamp describing when a pid-last-seen-too-long-ago error was last reported
-    NSMutableDictionary<NSNumber*, NSNumber*> * _Nonnull mPidLastReportedIntervalErrorMsMap;
-    
-    // Key = pid
-    // Value = cc counter
+
+    // Key = pid, Value = cc validator
     NSMutableDictionary<NSNumber*, TSContinuityCounter*> * _Nonnull mPidCcValidatorMap;
+
+    // Timestamp of last interval check (throttle to every 200ms for efficiency)
+    uint64_t mLastIntervalCheckMs;
 }
 
 -(instancetype)init
@@ -114,41 +123,43 @@
         _stats = [TSTr101290Statistics new];
         mNumConsecutiveSyncBytes = 0;
         mNumConsecutiveCorruptedSyncBytes = 0;
+        mSectionLastSeenMsMap = [NSMutableDictionary dictionary];
+        mIntervalErrorLastReportedMsMap = [NSMutableDictionary dictionary];
         mPidLastSeenMsMap = [NSMutableDictionary dictionary];
-        mPidLastReportedIntervalErrorMsMap = [NSMutableDictionary dictionary];
         mPidCcValidatorMap = [NSMutableDictionary dictionary];
     }
     return self;
 }
 
 -(void)analyzeTsPacket:(TSPacket* _Nonnull)tsPacket
-                   pat:(TSProgramAssociationTable* _Nullable)pat
-                   pmt:(TSProgramMapTable* _Nullable)pmt
-     dataArrivalTimeMs:(uint64_t)dataArrivalTimeMs
+               context:(TSTr101290AnalyzeContext* _Nonnull)context
 {
-    [self performPrio1Analysis:tsPacket pat:pat pmt:pmt dataArrivalTimeMs:dataArrivalTimeMs];
+    [self performPrio1Analysis:tsPacket context:context];
 }
 
 -(void)performPrio1Analysis:(TSPacket* _Nonnull)tsPacket
-                        pat:(TSProgramAssociationTable* _Nullable)pat
-                        pmt:(TSProgramMapTable* _Nullable)pmt
-          dataArrivalTimeMs:(uint64_t)dataArrivalTimeMs
+                    context:(TSTr101290AnalyzeContext* _Nonnull)context
 {
     [self checkTsSyncLoss:tsPacket];
-    
+
     if (tsPacket.header.pid == PID_NULL_PACKET) {
         // Don't analyze null packets
         return;
     }
     if ([self isSyncAcquired]) {
         // After synchronization has been achieved the evaluation of the other parameters can be carried out.
+        BOOL checkIntervalError = [self shouldRunIntervalCheck:context.nowMs];
+        if (checkIntervalError) {
+            mLastIntervalCheckMs = context.nowMs;
+        }
+
         [self checkSyncByteError:tsPacket];
-        [self checkPatError:tsPacket pat:pat nowMs:dataArrivalTimeMs];
-        [self checkPmtError:tsPacket pat:pat pmt:pmt nowMs:dataArrivalTimeMs];
+        [self checkPatError:tsPacket context:context checkIntervalError:checkIntervalError];
+        [self checkPmtError:tsPacket context:context checkIntervalError:checkIntervalError];
         [self checkCcError:tsPacket];
-        [self checkPidError:tsPacket nowMs:dataArrivalTimeMs];
-        
-        mPidLastSeenMsMap[@(tsPacket.header.pid)] = @(dataArrivalTimeMs);
+        [self checkPidError:tsPacket context:context checkIntervalError:checkIntervalError];
+
+        mPidLastSeenMsMap[@(tsPacket.header.pid)] = @(context.nowMs);
     }
 }
 
@@ -181,25 +192,37 @@
 }
 
 -(void)checkPatError:(TSPacket * _Nonnull)tsPacket
-                 pat:(TSProgramAssociationTable * _Nullable) pat
-               nowMs:(uint64_t)nowMs
+             context:(TSTr101290AnalyzeContext* _Nonnull)context
+   checkIntervalError:(BOOL)checkIntervalError
 {
     NSNumber *patPid = @(PID_PAT);
-    uint64_t thresholdMs = 500;
-    if ([self wasPidSeenTooLongAgo:patPid nowMs:nowMs thresholdMs:thresholdMs] &&
-        [self wasPidIntervalErrorReportedTooLongAgo:patPid nowMs:nowMs thresholdMs:thresholdMs]) { // Only report once per 'thresholdMs'
-        _stats.prio1.patError++;
-        mPidLastReportedIntervalErrorMsMap[patPid] = @(nowMs);
-        //NSLog(@"PID 0x0000 does not occur at least every 0,5 s");
-    }
-    if (pat) {
-        if (pat.psi.tableId != TABLE_ID_PAT) {
-            _stats.prio1.patError++;
-            //NSLog(@"a PID 0x0000 does not contain a table_id 0x00 (i.e. a PAT)");
-        } else if (tsPacket.header.isScrambled) {
-            _stats.prio1.patError++;
-            //NSLog(@"Scrambling_control_field is not 00 for PID 0x0000");
+
+    // Check if any section was completed on PID 0x0000
+    for (TSTr101290CompletedSection *completed in context.completedSections) {
+        if (completed.pid == PID_PAT) {
+            if (completed.section.tableId == TABLE_ID_PAT) {
+                // Valid PAT section - update last seen time
+                mSectionLastSeenMsMap[patPid] = @(context.nowMs);
+            } else {
+                // PAT error #2: Section with table_id other than 0x00 found on PID 0x0000
+                _stats.prio1.patError++;
+            }
         }
+    }
+
+    // PAT error #1: Sections with table_id 0x00 do not occur at least every 0,5 s on PID 0x0000
+    if (checkIntervalError) {
+        uint64_t thresholdMs = TR101290_PAT_PMT_INTERVAL_MS;
+        if ([self wasSectionSeenTooLongAgo:patPid nowMs:context.nowMs thresholdMs:thresholdMs] &&
+            [self wasIntervalErrorReportedTooLongAgo:patPid nowMs:context.nowMs thresholdMs:thresholdMs]) {
+            _stats.prio1.patError++;
+            mIntervalErrorLastReportedMsMap[patPid] = @(context.nowMs);
+        }
+    }
+
+    // PAT error #3: Scrambling_control_field is not 00 for PID 0x0000
+    if (tsPacket.header.pid == PID_PAT && tsPacket.header.isScrambled) {
+        _stats.prio1.patError++;
     }
 }
 
@@ -215,79 +238,158 @@
     NSString *error = [validator validateContinuityCounter:tsPacket];
     if (error) {
         _stats.prio1.ccError++;
-        //NSLog(@"%@", error);
+        NSLog(@"[TR101290] CC error on PID %u: %@", tsPacket.header.pid, error);
     }
 }
 
 -(void)checkPmtError:(TSPacket* _Nonnull)tsPacket
-                 pat:(TSProgramAssociationTable* _Nullable)pat
-                 pmt:(TSProgramMapTable* _Nullable)pmt
-               nowMs:(uint64_t)nowMs
+             context:(TSTr101290AnalyzeContext* _Nonnull)context
+   checkIntervalError:(BOOL)checkIntervalError
 {
-    if (pat) {
-        uint64_t thresholdMs = 500;
-        for (NSNumber *pmtPid in pat.programmes.allValues) {
-            // for each PMT in PAT: ensure it has been seen within last 500ms
-            if ([self wasPidSeenTooLongAgo:pmtPid nowMs:nowMs thresholdMs:thresholdMs] &&
-                [self wasPidIntervalErrorReportedTooLongAgo:pmtPid nowMs:nowMs thresholdMs:thresholdMs]) { // Only report once every 'thresholdMs'
-                _stats.prio1.pmtError++;
-                mPidLastReportedIntervalErrorMsMap[pmtPid] = @(nowMs);
-                //NSLog(@"Sections with table_id 0x02, do not occur at least every 0,5 s on the PID which is referred to in the PAT");
+    if (!context.pat) {
+        return;
+    }
+
+    // Per TR 101 290 1.5.a: only check program_map_PIDs, exclude network_PID
+    NSMutableArray<NSNumber*> *pmtPids = [NSMutableArray array];
+    [context.pat.programmes enumerateKeysAndObjectsUsingBlock:^(NSNumber *programNumber, NSNumber *pmtPid, BOOL *stop) {
+        if (programNumber.unsignedShortValue != PROGRAM_NUMBER_NETWORK_INFO) {
+            [pmtPids addObject:pmtPid];
+        }
+    }];
+
+    // Check completed sections on PMT PIDs
+    for (TSTr101290CompletedSection *completed in context.completedSections) {
+        NSNumber *completedPid = @(completed.pid);
+        if ([pmtPids containsObject:completedPid]) {
+            if (completed.section.tableId == TABLE_ID_PMT) {
+                // Valid PMT section - update last seen time for this PMT PID
+                mSectionLastSeenMsMap[completedPid] = @(context.nowMs);
             }
         }
     }
-    if (pmt) {
-        if (tsPacket.header.isScrambled) {
-            _stats.prio1.pmtError++;
-            //NSLog(@"Scrambling_control_field is not 00 for all PIDs containing sections with table_id 0x02"@"Scrambling_control_field is not 00 for all PIDs containing sections with table_id 0x02");
+
+    // PMT error #1: Sections with table_id 0x02 do not occur at least every 0,5 s on each PMT PID
+    if (checkIntervalError) {
+        uint64_t thresholdMs = TR101290_PAT_PMT_INTERVAL_MS;
+        for (NSNumber *pmtPid in pmtPids) {
+            if ([self wasSectionSeenTooLongAgo:pmtPid nowMs:context.nowMs thresholdMs:thresholdMs] &&
+                [self wasIntervalErrorReportedTooLongAgo:pmtPid nowMs:context.nowMs thresholdMs:thresholdMs]) {
+                _stats.prio1.pmtError++;
+                mIntervalErrorLastReportedMsMap[pmtPid] = @(context.nowMs);
+            }
         }
+    }
+
+    // PMT error #2 (TR 101 290 1.5.a): Scrambling_control_field is not 00 for all packets
+    // containing information of sections with table_id 0x02 on each program_map_PID
+    if (tsPacket.header.isScrambled && [pmtPids containsObject:@(tsPacket.header.pid)]) {
+        _stats.prio1.pmtError++;
     }
 }
 
--(void)checkPidError:(TSPacket * _Nonnull)tsPacket nowMs:(uint64_t)nowMs
+-(void)checkPidError:(TSPacket * _Nonnull)tsPacket
+             context:(TSTr101290AnalyzeContext* _Nonnull)context
+   checkIntervalError:(BOOL)checkIntervalError
 {
     /*
+     TR 101 290: PID_error
      It is checked whether there exists a data stream for each PID that occurs.
-     The user specified period should not exceed 5s for video or audio PIDs (see note).
-     Data services and audio services with ISO 639 [i.17] language descriptor with type greater than '0' should be excluded from this 5 s limit.
-     
-     FIXME: For PIDs carrying other information such as sub-titles, data services or audio services with ISO 639 [i.17] language descriptor with type greater than '0', the time between two consecutive packets of the same PID may be significantly longer. In principle, a different user specified period could be defined for each PID.
+     The user specified period should not exceed 5s for video or audio PIDs.
+     Data services and audio services with ISO 639 [i.17] language descriptor
+     with type greater than '0' should be excluded from this 5 s limit.
      */
-    NSNumber *lastSeen = mPidLastSeenMsMap[@(tsPacket.header.pid)];
-    if (lastSeen != nil) {
-        uint64_t lastSeenMs = lastSeen.unsignedLongLongValue;
-        uint64_t elapsedMs = nowMs - lastSeenMs;
-        BOOL hasElapsed5SecondsSincePidLastSeen = elapsedMs > 5000;
-        if (hasElapsed5SecondsSincePidLastSeen) {
-            _stats.prio1.pidError++;
-            //NSLog(@"PID %u was seen %llu ms ago (which is over 5s).", tsPacket.header.pid, elapsedMs);
+
+    if (!checkIntervalError) {
+        return;
+    }
+
+    // Check all known PMTs for elementary streams that should be monitored
+    for (NSNumber *pmtPid in context.pmts) {
+        TSProgramMapTable *pmt = context.pmts[pmtPid];
+
+        for (TSElementaryStream *es in pmt.elementaryStreams) {
+            // Only check video/audio PIDs
+            if (![es isVideoStreamType] && ![es isAudioStreamType]) {
+                continue;
+            }
+
+            // Exclude audio with ISO 639 audio_type > 0
+            if ([self hasISO639AudioTypeGreaterThanZero:es]) {
+                continue;
+            }
+
+            // Check 5-second threshold for this PID
+            [self checkPidInterval:es.pid nowMs:context.nowMs];
         }
     }
 }
 
--(BOOL)wasPidSeenTooLongAgo:(NSNumber* _Nonnull)pid nowMs:(uint64_t)nowMs thresholdMs:(uint64_t)thresholdMs
+-(BOOL)hasISO639AudioTypeGreaterThanZero:(TSElementaryStream*)es
 {
-    NSNumber *lastSeen = mPidLastSeenMsMap[pid];
-    BOOL isFirstTime = !lastSeen;
-    if (isFirstTime) {
-        return NO;
+    for (TSDescriptor *desc in es.descriptors) {
+        if ([desc isKindOfClass:[TSISO639LanguageDescriptor class]]) {
+            TSISO639LanguageDescriptor *langDesc = (TSISO639LanguageDescriptor*)desc;
+            for (TSISO639LanguageDescriptorEntry *entry in langDesc.entries) {
+                if (entry.audioType > TSISO639LanguageDescriptorAudioTypeUndefined) {
+                    return YES;
+                }
+            }
+        }
     }
-    
-    uint64_t lastSeenMs = lastSeen.unsignedLongLongValue;
-    uint64_t elapsedMs = (nowMs - lastSeenMs);
-    BOOL hasElapsedTooLongSinceLastSeen = elapsedMs > thresholdMs;
-    return hasElapsedTooLongSinceLastSeen;
+    return NO;
 }
 
--(BOOL)wasPidIntervalErrorReportedTooLongAgo:(NSNumber* _Nonnull)pid nowMs:(uint64_t)nowMs thresholdMs:(uint64_t)thresholdMs
+-(void)checkPidInterval:(uint16_t)pid nowMs:(uint64_t)nowMs
 {
-    NSNumber *lastReported = mPidLastReportedIntervalErrorMsMap[pid];
-    BOOL neverReported = !lastReported;
-    if (neverReported) {
+    NSNumber *pidKey = @(pid);
+    NSNumber *lastSeen = mPidLastSeenMsMap[pidKey];
+
+    if (!lastSeen) {
+        // First time seeing this PID - start tracking
+        mPidLastSeenMsMap[pidKey] = @(nowMs);
+        return;
+    }
+
+    uint64_t lastSeenMs = lastSeen.unsignedLongLongValue;
+    uint64_t elapsedMs = nowMs - lastSeenMs;
+
+    if (elapsedMs > TR101290_PID_INTERVAL_MS) {
+        _stats.prio1.pidError++;
+        // Reset to avoid repeated errors
+        mPidLastSeenMsMap[pidKey] = @(nowMs);
+    }
+}
+
+-(BOOL)wasSectionSeenTooLongAgo:(NSNumber* _Nonnull)pid nowMs:(uint64_t)nowMs thresholdMs:(uint64_t)thresholdMs
+{
+    NSNumber *lastSeen = mSectionLastSeenMsMap[pid];
+    if (!lastSeen) {
+        // No section seen yet - insert current time to start the timer
+        mSectionLastSeenMsMap[pid] = @(nowMs);
+        return NO;
+    }
+
+    uint64_t lastSeenMs = lastSeen.unsignedLongLongValue;
+    uint64_t elapsedMs = (nowMs - lastSeenMs);
+    return elapsedMs > thresholdMs;
+}
+
+-(BOOL)wasIntervalErrorReportedTooLongAgo:(NSNumber* _Nonnull)pid nowMs:(uint64_t)nowMs thresholdMs:(uint64_t)thresholdMs
+{
+    NSNumber *lastReported = mIntervalErrorLastReportedMsMap[pid];
+    if (!lastReported) {
+        // Never reported - ok to report
         return YES;
     }
-    BOOL hasElapsedTooLongSinceLastReportedError = (nowMs - lastReported.unsignedLongLongValue) > thresholdMs;
-    return hasElapsedTooLongSinceLastReportedError;
+    return (nowMs - lastReported.unsignedLongLongValue) > thresholdMs;
+}
+
+/// Throttle interval checks to avoid running on every packet
+-(BOOL)shouldRunIntervalCheck:(uint64_t)nowMs
+{
+    const uint64_t intervalCheckThrottleMs = 200; // Check every 200ms for efficiency
+    return (nowMs - mLastIntervalCheckMs >= intervalCheckThrottleMs);
 }
 @end
 
