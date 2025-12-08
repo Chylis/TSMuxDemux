@@ -16,12 +16,16 @@
 typedef NS_ENUM(uint8_t, TSStreamType) {
     TSStreamTypeMPEG1Audio                           = 0x03, // ISO/IEC 11172-3 (MPEG-1 Audio Layer I, II, III)
     TSStreamTypeMPEG2Audio                           = 0x04, // ISO/IEC 13818-3 (MPEG-2 Audio)
-    // TSStreamTypePrivateData type of data is determined by descriptor tags (TSDescriptorTag)
+    // TSStreamTypePrivateData: type of data is determined by descriptor tags (TSDescriptorTag).
+    // AC-3 System B (DVB) uses this with AC-3 descriptor (0x6A).
     TSStreamTypePrivateData                          = 0x06,
     TSStreamTypeADTSAAC                              = 0x0f, // ISO/IEC 13818-7 (AAC with ADTS transport)
     TSStreamTypeLATMAAC                              = 0x11, // ISO/IEC 14496-3 (AAC with LATM transport)
     TSStreamTypeH264                                 = 0x1b,
     TSStreamTypeH265                                 = 0x24,
+    // ATSC stream types (user private range 0x80-0xFF)
+    TSStreamTypeATSCAC3                              = 0x81, // ATSC A/52 Dolby Digital AC-3 (System A)
+    TSStreamTypeATSCEAC3                             = 0x87, // ATSC A/52 Dolby Digital Plus E-AC-3 (System A)
 };
 
 // Defined in ANSI/SCTE 35 - Digital Program Insertion Cueing Message

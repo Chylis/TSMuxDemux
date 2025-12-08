@@ -11,6 +11,12 @@
 #import "TSConstants.h"
 #import "TSTimeUtil.h"
 #import "Descriptor/TSDescriptor.h"
+#import "Descriptor/TSRegistrationDescriptor.h"
+
+// Registration descriptor format identifiers (SMPTE RA registered)
+// https://smpte-ra.org/registered-mpeg-ts-ids
+static const uint32_t kFormatIdentifierAC3  = 0x41432D33; // ASCII: "AC-3"
+static const uint32_t kFormatIdentifierBSSD = 0x42535344; // ASCII: "BSSD" (AES3/SMPTE 302M)
 
 #pragma mark - TSAccessUnit
 
@@ -237,10 +243,25 @@ static const uint8_t TIMESTAMP_LENGTH = 5; // A timestamp (pts/dts) is a 33-bit 
             return YES;
         case TSStreamTypeLATMAAC:
             return YES;
+        // ATSC AC-3 System A
+        case TSStreamTypeATSCAC3:
+            return YES;
+        case TSStreamTypeATSCEAC3:
+            return YES;
+        // AC-3 System B (DVB) and other private data audio
         case TSStreamTypePrivateData: {
-            for (const TSDescriptor *d in descriptors) {
+            for (TSDescriptor *d in descriptors) {
+                // Check descriptor tags (e.g., AC-3, E-AC-3, AAC descriptors)
                 if ([TSDescriptor isAudioDescriptor:d.descriptorTag]) {
                     return YES;
+                }
+                // Check Registration descriptor for audio format identifiers
+                if ([d isKindOfClass:[TSRegistrationDescriptor class]]) {
+                    TSRegistrationDescriptor *reg = (TSRegistrationDescriptor *)d;
+                    if (reg.formatIdentifier == kFormatIdentifierAC3 ||
+                        reg.formatIdentifier == kFormatIdentifierBSSD) {
+                        return YES;
+                    }
                 }
             }
         }
@@ -263,6 +284,8 @@ static const uint8_t TIMESTAMP_LENGTH = 5; // A timestamp (pts/dts) is a 33-bit 
         case TSStreamTypeMPEG2Audio: return NO;
         case TSStreamTypeADTSAAC:    return NO;
         case TSStreamTypeLATMAAC:    return NO;
+        case TSStreamTypeATSCAC3:    return NO;
+        case TSStreamTypeATSCEAC3:   return NO;
         case TSStreamTypePrivateData: return NO;
     }
     return NO;
@@ -298,6 +321,12 @@ static const uint8_t TIMESTAMP_LENGTH = 5; // A timestamp (pts/dts) is a 33-bit 
         case TSStreamTypePrivateData:
             type = @"PES private data";
             break;
+        case TSStreamTypeATSCAC3:
+            type = @"AC-3";
+            break;
+        case TSStreamTypeATSCEAC3:
+            type = @"E-AC-3";
+            break;
     }
 
     switch ((TSScte35StreamType)streamType) {
@@ -318,27 +347,31 @@ static const uint8_t TIMESTAMP_LENGTH = 5; // A timestamp (pts/dts) is a 33-bit 
 +(uint8_t)streamIdFromStreamType:(TSStreamType)streamType
 {
     switch (streamType) {
+        case TSStreamTypeMPEG1Audio:
+        case TSStreamTypeMPEG2Audio:
         case TSStreamTypeADTSAAC:
+        case TSStreamTypeLATMAAC:
             // ISO/IEC 13818-3 or ISO/IEC 11172-3 or ISO/IEC 13818-7 or ISO/IEC 14496-3 audio stream number x xxxx
             // 110X XXXX, where X can be 0 or 1 (doesn't matter) = 0xC0
             return 0xC0;
-            
+
         case TSStreamTypeH264:
+        case TSStreamTypeH265:
             // Rec. ITU-T H.262 | ISO/IEC 13818-2, ISO/IEC 11172-2, ISO/IEC 14496-2 or Rec. ITU-T H.264 | ISO/IEC 14496-10 video stream number xxxx
             // 1110 XXXX, where X can be 0 or 1 (doesn't matter) = 0xE0
             return 0xE0;
-            
-        case TSStreamTypeH265:
-            return 0xE0;
-            
+
         case TSStreamTypePrivateData:
+        case TSStreamTypeATSCAC3:
+        case TSStreamTypeATSCEAC3:
             return 0xBD; // Private_stream_1
     }
+    return 0xBD; // Default to private stream
 }
 
 -(uint8_t)streamId
 {
-    [TSAccessUnit streamIdFromStreamType:self.streamType];
+    return [TSAccessUnit streamIdFromStreamType:self.streamType];
 }
 
 @end
