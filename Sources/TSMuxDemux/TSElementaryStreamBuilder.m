@@ -45,41 +45,66 @@
 {
     NSAssert(tsPacket.header.pid == self.pid, @"PID mismatch");
     //NSLog(@"pid: %u, CC '%u', adaptation: %u", self.pid, tsPacket.header.continuityCounter, tsPacket.header.adaptationMode);
-    
+
     BOOL isDuplicateCC = self.lastPacket &&
     tsPacket.header.continuityCounter == self.lastPacket.header.continuityCounter &&
     !tsPacket.adaptationField.discontinuityFlag;
-    
+
     [self setLastPacket:tsPacket];
-    
+
     if (isDuplicateCC) {
         // FIXME MG: Consider not only duplicate CCs but also gaps
         return;
     }
-    
+
     if (tsPacket.header.payloadUnitStartIndicator) {
-        // First packet of new PES
-        if (self.collectedData.length > 0) {
-            TSAccessUnit *accessUnit = [[TSAccessUnit alloc] initWithPid:self.pid
-                                                                     pts:self.pts
-                                                                     dts:self.dts
-                                                         isDiscontinuous:self.isDiscontinuous
-                                                              streamType:self.streamType
-                                                             descriptors:self.descriptors
-                                                          compressedData:self.collectedData];
-            [self.delegate streamBuilder:self didBuildAccessUnit:accessUnit];
-            self.collectedData = nil;
+        // New PES packet starting - parse its header first to get PTS
+        TSAccessUnit *newPesAccessUnit = [TSAccessUnit initWithTsPacket:tsPacket
+                                                                    pid:self.pid
+                                                             streamType:self.streamType
+                                                            descriptors:self.descriptors];
+
+        // Check if this PES packet belongs to the same access unit (same PTS).
+        // This handles interlaced video where top and bottom fields are sent in separate
+        // PES packets but share the same PTS. It also handles cases where a single frame
+        // is split across multiple PES packets (e.g., multiple slices with the same PTS).
+        // By aggregating PES packets with matching PTS, we ensure the decoder receives
+        // complete frames/field-pairs rather than incomplete data.
+        BOOL isSameAccessUnit = NO;
+        if (self.collectedData.length > 0 && CMTIME_IS_VALID(self.pts) && CMTIME_IS_VALID(newPesAccessUnit.pts)) {
+            isSameAccessUnit = CMTimeCompare(self.pts, newPesAccessUnit.pts) == 0;
         }
-        
-        // Parse PES header
-        TSAccessUnit *firstAccessUnit = [TSAccessUnit initWithTsPacket:tsPacket
-                                                                   pid:self.pid
-                                                            streamType:self.streamType
-                                                         descriptors:self.descriptors];
-        self.pts = firstAccessUnit.pts;
-        self.dts = firstAccessUnit.dts;
-        self.isDiscontinuous = firstAccessUnit.isDiscontinuous;
-        self.collectedData = [NSMutableData dataWithData:firstAccessUnit.compressedData];
+
+        if (isSameAccessUnit) {
+            // Same PTS - this is a continuation of the same frame (e.g., another slice)
+            // Append the data without delivering the previous access unit
+            //NSLog(@"[TSESBuilder] pid=%u: Aggregating PES into same access unit (PTS=%.3f) - collected %lu + %lu bytes",
+            //      self.pid,
+            //      CMTimeGetSeconds(self.pts),
+            //      (unsigned long)self.collectedData.length,
+            //      (unsigned long)newPesAccessUnit.compressedData.length);
+            [self.collectedData appendData:newPesAccessUnit.compressedData];
+            // Preserve the original DTS and discontinuity flag from the first PES
+        } else {
+            // Different PTS - deliver the previous access unit if we have one
+            if (self.collectedData.length > 0) {
+                TSAccessUnit *accessUnit = [[TSAccessUnit alloc] initWithPid:self.pid
+                                                                         pts:self.pts
+                                                                         dts:self.dts
+                                                             isDiscontinuous:self.isDiscontinuous
+                                                                  streamType:self.streamType
+                                                                 descriptors:self.descriptors
+                                                              compressedData:self.collectedData];
+                [self.delegate streamBuilder:self didBuildAccessUnit:accessUnit];
+                self.collectedData = nil;
+            }
+
+            // Start collecting the new access unit
+            self.pts = newPesAccessUnit.pts;
+            self.dts = newPesAccessUnit.dts;
+            self.isDiscontinuous = newPesAccessUnit.isDiscontinuous;
+            self.collectedData = [NSMutableData dataWithData:newPesAccessUnit.compressedData];
+        }
     } else {
         // Continuation of PES packet
         if (!self.collectedData) {
