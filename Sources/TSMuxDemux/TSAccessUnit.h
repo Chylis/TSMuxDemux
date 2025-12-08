@@ -26,6 +26,8 @@ typedef NS_ENUM(uint8_t, TSStreamType) {
     // ATSC stream types (user private range 0x80-0xFF)
     TSStreamTypeATSCAC3                              = 0x81, // ATSC A/52 Dolby Digital AC-3 (System A)
     TSStreamTypeATSCEAC3                             = 0x87, // ATSC A/52 Dolby Digital Plus E-AC-3 (System A)
+    // Synthetic stream types (resolved from descriptors, not raw PMT stream_type)
+    TSStreamTypeBSSD                                 = 0xBD, // SMPTE 302M (AES3/BSSD) - detected via Registration descriptor
 };
 
 // Defined in ANSI/SCTE 35 - Digital Program Insertion Cueing Message
@@ -76,6 +78,12 @@ typedef NS_ENUM(uint8_t, TSScte35StreamType) {
 -(BOOL)isAudioStreamType;
 +(BOOL)isAudioStreamType:(uint8_t)streamType
              descriptors:(NSArray<TSDescriptor*>* _Nullable)descriptors;
+
+/// Returns the resolved stream type after examining descriptors.
+/// For example, PrivateData (0x06) with a BSSD Registration descriptor resolves to TSStreamTypeBSSD.
+-(uint8_t)resolvedStreamType;
++(uint8_t)resolvedStreamType:(uint8_t)streamType
+                 descriptors:(NSArray<TSDescriptor*>* _Nullable)descriptors;
 
 -(BOOL)isVideoStreamType;
 +(BOOL)isVideoStreamType:(uint8_t)streamType;
