@@ -269,7 +269,27 @@ static const uint8_t TIMESTAMP_LENGTH = 5; // A timestamp (pts/dts) is a 33-bit 
     return NO;
 }
 
+-(uint8_t)resolvedStreamType
+{
+    return [TSAccessUnit resolvedStreamType:self.streamType descriptors:self.descriptors];
+}
 
++(uint8_t)resolvedStreamType:(uint8_t)streamType
+                 descriptors:(NSArray<TSDescriptor*>* _Nullable)descriptors
+{
+    if (streamType == TSStreamTypePrivateData) {
+        for (TSDescriptor *d in descriptors) {
+            // Check Registration descriptor for known format identifiers
+            if ([d isKindOfClass:[TSRegistrationDescriptor class]]) {
+                TSRegistrationDescriptor *reg = (TSRegistrationDescriptor *)d;
+                if (reg.formatIdentifier == kFormatIdentifierBSSD) {
+                    return TSStreamTypeBSSD;
+                }
+            }
+        }
+    }
+    return streamType;
+}
 
 -(BOOL)isVideoStreamType
 {
@@ -287,8 +307,8 @@ static const uint8_t TIMESTAMP_LENGTH = 5; // A timestamp (pts/dts) is a 33-bit 
         case TSStreamTypeATSCAC3:    return NO;
         case TSStreamTypeATSCEAC3:   return NO;
         case TSStreamTypePrivateData: return NO;
+        case TSStreamTypeBSSD:       return NO;
     }
-    return NO;
 }
 
 
@@ -327,6 +347,9 @@ static const uint8_t TIMESTAMP_LENGTH = 5; // A timestamp (pts/dts) is a 33-bit 
         case TSStreamTypeATSCEAC3:
             type = @"E-AC-3";
             break;
+        case TSStreamTypeBSSD:
+            type = @"SMPTE302M";
+            break;
     }
 
     switch ((TSScte35StreamType)streamType) {
@@ -364,6 +387,7 @@ static const uint8_t TIMESTAMP_LENGTH = 5; // A timestamp (pts/dts) is a 33-bit 
         case TSStreamTypePrivateData:
         case TSStreamTypeATSCAC3:
         case TSStreamTypeATSCEAC3:
+        case TSStreamTypeBSSD:
             return 0xBD; // Private_stream_1
     }
     return 0xBD; // Default to private stream
