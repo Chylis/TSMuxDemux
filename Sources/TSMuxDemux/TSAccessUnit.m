@@ -286,6 +286,14 @@ static const uint8_t TIMESTAMP_LENGTH = 5; // A timestamp (pts/dts) is a 33-bit 
                     return TSStreamTypeBSSD;
                 }
             }
+            // Check DVB AC-3 descriptor (tag 0x6A)
+            if (d.descriptorTag == TSDvbDescriptorTagAC3) {
+                return TSStreamTypeATSCAC3;
+            }
+            // Check DVB Enhanced AC-3 descriptor (tag 0x7A)
+            if (d.descriptorTag == TSDvbDescriptorTagEnhancedAC3) {
+                return TSStreamTypeATSCEAC3;
+            }
         }
     }
     return streamType;

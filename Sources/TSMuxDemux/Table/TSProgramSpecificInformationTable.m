@@ -181,4 +181,14 @@
     [self.sectionDataExcludingCrc hash];
 }
 
+-(NSString*)description
+{
+    return [NSString stringWithFormat:@"{ tableId: 0x%02x, v: %u, section: %u/%u, length: %hu }",
+            self.tableId,
+            self.versionNumber,
+            self.sectionNumber,
+            self.lastSectionNumber,
+            self.sectionLength];
+}
+
 @end

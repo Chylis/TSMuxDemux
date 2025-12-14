@@ -59,6 +59,24 @@
     return self;
 }
 
+-(BOOL)isEqual:(id)object
+{
+    if (self == object) {
+        return YES;
+    }
+    if ([self class] != [object class]) {
+        return NO;
+    }
+    TSDescriptor *other = (TSDescriptor*)object;
+    return self.descriptorTag == other.descriptorTag
+        && self.descriptorLength == other.descriptorLength;
+}
+
+-(NSUInteger)hash
+{
+    return self.descriptorTag ^ (self.descriptorLength << 8);
+}
+
 // FIXME MG: Remove this static func and delegate to subclass when all below descriptors are implemented
 +(BOOL)isAudioDescriptor:(uint8_t)descriptorTag
 {

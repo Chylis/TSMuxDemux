@@ -292,6 +292,10 @@
     && [self.elementaryStreams isEqual:pmt.elementaryStreams];
 }
 
+-(NSUInteger)hash
+{
+    return self.programNumber ^ (self.psi.versionNumber << 16) ^ self.elementaryStreams.hash;
+}
 
 -(NSString*)description
 {

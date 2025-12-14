@@ -27,6 +27,30 @@
     return self;
 }
 
+-(BOOL)isEqual:(id)object
+{
+    if (self == object) {
+        return YES;
+    }
+    if (![object isKindOfClass:[TSISO639LanguageDescriptorEntry class]]) {
+        return NO;
+    }
+    TSISO639LanguageDescriptorEntry *other = (TSISO639LanguageDescriptorEntry*)object;
+    if (self.audioType != other.audioType) {
+        return NO;
+    }
+    if (self.languageCode != other.languageCode &&
+        ![self.languageCode isEqualToString:other.languageCode]) {
+        return NO;
+    }
+    return YES;
+}
+
+-(NSUInteger)hash
+{
+    return self.audioType ^ self.languageCode.hash;
+}
+
 -(NSString*)description
 {
     return [NSString stringWithFormat:@"%@ (%@)",
@@ -115,6 +139,38 @@
     return self;
 }
 
+-(BOOL)isEqual:(id)object
+{
+    if (self == object) {
+        return YES;
+    }
+    if ([self class] != [object class]) {
+        return NO;
+    }
+    if (![super isEqual:object]) {
+        return NO;
+    }
+    TSISO639LanguageDescriptor *other = (TSISO639LanguageDescriptor*)object;
+    if (self.entries.count != other.entries.count) {
+        return NO;
+    }
+    for (NSUInteger i = 0; i < self.entries.count; ++i) {
+        if (![self.entries[i] isEqual:other.entries[i]]) {
+            return NO;
+        }
+    }
+    return YES;
+}
+
+-(NSUInteger)hash
+{
+    NSUInteger entriesHash = 0;
+    for (TSISO639LanguageDescriptorEntry *e in self.entries) {
+        entriesHash ^= e.hash;
+    }
+    return [super hash] ^ entriesHash;
+}
+
 -(NSString*)description
 {
     return [self tagDescription];
@@ -124,7 +180,7 @@
     NSMutableString *formattedEntries = [NSMutableString
                                          stringWithFormat:@"%@",
                                          self.entries.count > 0 ? @"" : @"[]"];
-    
+
     BOOL first = YES;
     for (TSISO639LanguageDescriptorEntry *e in self.entries) {
         if (!first) {
@@ -133,7 +189,7 @@
         [formattedEntries appendString:[e description]];
         first = NO;
     }
-    
+
     return [NSString stringWithFormat:@"ISO-639 language: %@", formattedEntries];
 }
 

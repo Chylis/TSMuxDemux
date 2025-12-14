@@ -59,17 +59,21 @@
     for (NSUInteger i=0; i < self.descriptors.count; ++i) {
         TSDescriptor *d1 = self.descriptors[i];
         TSDescriptor *d2 = es.descriptors[i];
-        if (d1.descriptorTag != d2.descriptorTag) {
+        if (![d1 isEqual:d2]) {
             return NO;
         }
     }
-    
+
     return YES;
 }
 
 -(NSUInteger)hash
 {
-    return [@(self.pid) hash];
+    NSUInteger descriptorsHash = 0;
+    for (TSDescriptor *d in self.descriptors) {
+        descriptorsHash ^= d.hash;
+    }
+    return self.pid ^ (self.streamType << 16) ^ descriptorsHash;
 }
 
 -(BOOL)isAudioStreamType

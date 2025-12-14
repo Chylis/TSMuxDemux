@@ -76,11 +76,16 @@
     for (NSUInteger i=0; i < self.descriptors.count; ++i) {
         TSDescriptor *d1 = self.descriptors[i];
         TSDescriptor *d2 = e.descriptors[i];
-        if (d1.descriptorTag != d2.descriptorTag) {
+        if (![d1 isEqual:d2]) {
             return NO;
         }
     }
     return YES;
+}
+
+-(NSUInteger)hash
+{
+    return _serviceId;
 }
 
 -(NSString *)description
@@ -227,6 +232,10 @@
     && [self.entries isEqual:sdt.entries];
 }
 
+-(NSUInteger)hash
+{
+    return self.transportStreamId ^ (self.psi.versionNumber << 16);
+}
 
 -(NSString*)description
 {

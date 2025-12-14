@@ -40,6 +40,33 @@
     return self;
 }
 
+-(BOOL)isEqual:(id)object
+{
+    if (self == object) {
+        return YES;
+    }
+    if ([self class] != [object class]) {
+        return NO;
+    }
+    if (![super isEqual:object]) {
+        return NO;
+    }
+    TSRegistrationDescriptor *other = (TSRegistrationDescriptor*)object;
+    if (self.formatIdentifier != other.formatIdentifier) {
+        return NO;
+    }
+    if (self.additionalIdentificationInfo != other.additionalIdentificationInfo &&
+        ![self.additionalIdentificationInfo isEqualToData:other.additionalIdentificationInfo]) {
+        return NO;
+    }
+    return YES;
+}
+
+-(NSUInteger)hash
+{
+    return [super hash] ^ self.formatIdentifier ^ self.additionalIdentificationInfo.hash;
+}
+
 -(NSString*)description
 {
     return [self tagDescription];

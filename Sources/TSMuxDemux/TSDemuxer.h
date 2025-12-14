@@ -10,14 +10,16 @@
 #import "TSConstants.h"
 #import "TSAccessUnit.h"
 #import "Table/TSProgramMapTable.h"
-#import "TR101290/TSTr101290Statistics.h"
 #import "Table/TSProgramAssociationTable.h"
+#import "Table/DVB/TSDvbServiceDescriptionTable.h"
+#import "TR101290/TSTr101290Statistics.h"
 @class TSDemuxer;
 
 
 @protocol TSDemuxerDelegate
 -(void)demuxer:(TSDemuxer * _Nonnull)demuxer didReceivePat:(TSProgramAssociationTable* _Nonnull)pat previousPat:(TSProgramAssociationTable* _Nullable)previousPat;
 -(void)demuxer:(TSDemuxer * _Nonnull)demuxer didReceivePmt:(TSProgramMapTable* _Nonnull)pmt previousPmt:(TSProgramMapTable* _Nullable)previousPmt;
+-(void)demuxer:(TSDemuxer * _Nonnull)demuxer didReceiveSdt:(TSDvbServiceDescriptionTable* _Nonnull)sdt previousSdt:(TSDvbServiceDescriptionTable* _Nullable)previousSdt;
 -(void)demuxer:(TSDemuxer * _Nonnull)demuxer didReceiveAccessUnit:(TSAccessUnit* _Nonnull)accessUnit;
 @end
 
@@ -27,6 +29,7 @@
 
 @property(nonatomic, readonly, nullable) TSProgramAssociationTable *pat;
 @property(nonatomic, readonly, nonnull) NSDictionary<ProgramNumber,TSProgramMapTable*> *pmts;
+@property(nonatomic, readonly, nullable) TSDvbServiceDescriptionTable *sdt;
 
 -(instancetype _Nullable)initWithDelegate:(id<TSDemuxerDelegate> _Nullable)delegate;
 

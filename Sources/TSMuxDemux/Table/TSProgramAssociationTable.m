@@ -156,4 +156,17 @@
     return [self.programmes isEqual:pat.programmes];
 }
 
+-(NSUInteger)hash
+{
+    return self.transportStreamId ^ self.psi.versionNumber ^ self.programmes.hash;
+}
+
+-(NSString*)description
+{
+    return [NSString stringWithFormat:@"{ v: %u, tsId: %hu, programmes: %@ }",
+            self.psi.versionNumber,
+            self.transportStreamId,
+            self.programmes];
+}
+
 @end

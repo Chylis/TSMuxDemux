@@ -55,10 +55,42 @@
 }
 
 
+-(BOOL)isEqual:(id)object
+{
+    if (self == object) {
+        return YES;
+    }
+    if ([self class] != [object class]) {
+        return NO;
+    }
+    if (![super isEqual:object]) {
+        return NO;
+    }
+    TSDvbServiceDescriptor *other = (TSDvbServiceDescriptor*)object;
+    if (self.serviceType != other.serviceType) {
+        return NO;
+    }
+    if (self.serviceProviderName != other.serviceProviderName &&
+        ![self.serviceProviderName isEqual:other.serviceProviderName]) {
+        return NO;
+    }
+    if (self.serviceName != other.serviceName &&
+        ![self.serviceName isEqual:other.serviceName]) {
+        return NO;
+    }
+    return YES;
+}
+
+-(NSUInteger)hash
+{
+    return [super hash] ^ self.serviceType ^ self.serviceProviderName.hash ^ self.serviceName.hash;
+}
+
 -(NSString*)description
 {
     return [self tagDescription];
 }
+
 -(NSString*)tagDescription
 {
     return [NSString stringWithFormat:@"type: %@, service provider: %@, service: %@",

@@ -66,6 +66,16 @@
     [self.delegate demuxer:self didReceivePat:pat previousPat:prevPat];
 }
 
+-(void)setSdt:(TSDvbServiceDescriptionTable*)sdt
+{
+    TSDvbServiceDescriptionTable *prevSdt = self.sdt;
+    if ([sdt isEqual:prevSdt]) {
+        return;
+    }
+    _sdt = sdt;
+    [self.delegate demuxer:self didReceiveSdt:sdt previousSdt:prevSdt];
+}
+
 -(void)updatePmt:(TSProgramMapTable*)pmt
 {
     ProgramNumber programNumber = @(pmt.programNumber);
@@ -224,8 +234,7 @@
     } else if (table.tableId == TABLE_ID_PMT) {
         [self updatePmt:[[TSProgramMapTable alloc] initWithPSI:table]];
     } else if (table.tableId == TABLE_ID_DVB_SDT_ACTUAL_TS) {
-        TSDvbServiceDescriptionTable *sdt = [[TSDvbServiceDescriptionTable alloc] initWithPSI:table];
-        //NSLog(@"Received pid: %u, table: %@", builder.pid, sdt.description);
+        self.sdt = [[TSDvbServiceDescriptionTable alloc] initWithPSI:table];
     } else {
         NSLog(@"Received unhandled PSI table pid: %u, tableId: %u", builder.pid, table.tableId);
     }

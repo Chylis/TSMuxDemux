@@ -33,6 +33,26 @@
     return self;
 }
 
+-(BOOL)isEqual:(id)object
+{
+    if (self == object) {
+        return YES;
+    }
+    if ([self class] != [object class]) {
+        return NO;
+    }
+    if (![super isEqual:object]) {
+        return NO;
+    }
+    TSScte35CueIdentifierDescriptor *other = (TSScte35CueIdentifierDescriptor*)object;
+    return self.cueStreamType == other.cueStreamType;
+}
+
+-(NSUInteger)hash
+{
+    return [super hash] ^ self.cueStreamType;
+}
+
 -(NSString*)description
 {
     return [self tagDescription];
