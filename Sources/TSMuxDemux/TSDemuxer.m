@@ -37,6 +37,7 @@
 @implementation TSDemuxer
 {
     NSMutableDictionary<ProgramNumber,TSProgramMapTable*> *_pmts;
+    NSDictionary<NSNumber*, TSProgramMapTable*> *_cachedPmtsByPid;
 }
 
 -(instancetype)initWithDelegate:(id<TSDemuxerDelegate>)delegate
@@ -63,6 +64,7 @@
         return;
     }
     _pat = pat;
+    _cachedPmtsByPid = nil;
     [self.delegate demuxer:self didReceivePat:pat previousPat:prevPat];
 }
 
@@ -111,6 +113,7 @@
     }
 
     _pmts[programNumber] = pmt;
+    _cachedPmtsByPid = nil;
     [self.delegate demuxer:self didReceivePmt:pmt previousPmt:prevPmt];
 }
 
@@ -129,9 +132,13 @@
     return nil;
 }
 
-/// Returns PMTs keyed by their PID (for TR101290 analysis)
+/// Returns PMTs keyed by their PID (for TR101290 analysis).
+/// Result is cached and invalidated when PAT or PMT changes.
 -(NSDictionary<NSNumber*, TSProgramMapTable*>*)pmtsByPid
 {
+    if (_cachedPmtsByPid) {
+        return _cachedPmtsByPid;
+    }
     if (!self.pat) {
         return @{};
     }
@@ -142,7 +149,8 @@
             result[pmtPid] = pmt;
         }
     }];
-    return result;
+    _cachedPmtsByPid = result;
+    return _cachedPmtsByPid;
 }
 
 
@@ -208,9 +216,9 @@
         
         TSTr101290AnalyzeContext *context = [[TSTr101290AnalyzeContext alloc]
                                              initWithPat:self.pat
-                                             pmts:[self pmtsByPid]
+                                             pmts:self.pmtsByPid
                                              nowMs:dataArrivalHostTimeNanos / 1000000
-                                             completedSections:[self.pendingCompletedSections copy]];
+                                             completedSections:self.pendingCompletedSections];
         [self.tsPacketAnalyzer analyzeTsPacket:tsPacket context:context];
 
         // Clear pending sections after analysis

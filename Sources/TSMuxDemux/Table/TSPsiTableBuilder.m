@@ -13,7 +13,6 @@
 
 @interface TSPsiTableBuilder()
 @property(nonatomic, strong) TSProgramSpecificInformationTable *tableInProgress;
-@property(nonatomic, strong) TSPacket *lastPacket;
 @end
 
 /**
@@ -32,6 +31,10 @@
  -
  */
 @implementation TSPsiTableBuilder
+{
+    BOOL _hasLastCC;
+    uint8_t _lastContinuityCounter;
+}
 
 -(instancetype _Nonnull)initWithDelegate:(id<TSPsiTableBuilderDelegate>)delegate
                                      pid:(uint16_t)pid
@@ -40,7 +43,8 @@
     if (self) {
         _delegate = delegate;
         _pid = pid;
-        _lastPacket = nil;
+        _hasLastCC = NO;
+        _lastContinuityCounter = 0;
     }
     return self;
 }
@@ -48,9 +52,10 @@
 -(void)addTsPacket:(TSPacket* _Nonnull)tsPacket
 {
     NSAssert(tsPacket.header.pid == self.pid, @"PID mismatch");
-    BOOL isDuplicateCC = tsPacket.header.continuityCounter == self.lastPacket.header.continuityCounter;
-    
-    [self setLastPacket:tsPacket];
+    BOOL isDuplicateCC = _hasLastCC && tsPacket.header.continuityCounter == _lastContinuityCounter;
+
+    _hasLastCC = YES;
+    _lastContinuityCounter = tsPacket.header.continuityCounter;
     if (isDuplicateCC) { // FIXME MG: Consider not only duplicate CCs but also gaps
         return;
     }

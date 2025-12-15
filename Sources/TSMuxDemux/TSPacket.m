@@ -400,7 +400,9 @@
             + (hasAdaptationField ? 1 : 0) // + 1 for the first byte of the adaptation header itself
             + (adaptationField.adaptationFieldLength ?: 0);
             const NSUInteger payloadLength = TS_PACKET_SIZE - payloadOffset;
-            payload = [NSData dataWithBytes:(void*)tsPacketData.bytes + payloadOffset length:payloadLength];
+            payload = [NSData dataWithBytesNoCopy:(void*)tsPacketData.bytes + payloadOffset
+                                           length:payloadLength
+                                     freeWhenDone:NO];
         }
         
         TSPacket *packet = [[TSPacket alloc] initWithHeader:(TSPacketHeader* _Nonnull)header

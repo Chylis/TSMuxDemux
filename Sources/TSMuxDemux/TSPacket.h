@@ -102,9 +102,10 @@ typedef void (^OnTsPacketDataCallback)(NSData * _Nonnull);
 
 @property(nonatomic, nonnull, readonly) TSPacketHeader *header;
 @property(nonatomic, nullable, readonly) TSAdaptationField *adaptationField;
+// Does not copy the data.
 @property(nonatomic, nullable, readonly) NSData *payload;
 
-/// Creates TSPackets from the received raw ts packet data
+/// Creates TSPackets from the received raw ts packet data - doesn't own the memory, chunk does
 +(NSArray<TSPacket*>* _Nonnull)packetsFromChunkedTsData:(NSData* _Nonnull)chunk;
 
 /// Packetizes the received payload in N 188-byte long raw ts-data chunks and passes each chunk individually to the callback.

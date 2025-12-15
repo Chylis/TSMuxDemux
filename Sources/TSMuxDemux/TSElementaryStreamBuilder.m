@@ -16,11 +16,14 @@
 @property(nonatomic) CMTime dts;
 @property(nonatomic) BOOL isDiscontinuous;
 @property(nonatomic, strong) NSMutableData *collectedData;
-@property(nonatomic, strong) TSPacket *lastPacket;
 
 @end
 
 @implementation TSElementaryStreamBuilder
+{
+    BOOL _hasLastCC;
+    uint8_t _lastContinuityCounter;
+}
 
 -(instancetype _Nonnull)initWithDelegate:(id<TSElementaryStreamBuilderDelegate>)delegate
                                      pid:(uint16_t)pid
@@ -34,7 +37,8 @@
         _streamType = streamType;
         _descriptors = descriptors;
         _collectedData = nil;
-        _lastPacket = nil;
+        _hasLastCC = NO;
+        _lastContinuityCounter = 0;
     }
     return self;
 }
@@ -46,11 +50,12 @@
     NSAssert(tsPacket.header.pid == self.pid, @"PID mismatch");
     //NSLog(@"pid: %u, CC '%u', adaptation: %u", self.pid, tsPacket.header.continuityCounter, tsPacket.header.adaptationMode);
 
-    BOOL isDuplicateCC = self.lastPacket &&
-    tsPacket.header.continuityCounter == self.lastPacket.header.continuityCounter &&
-    !tsPacket.adaptationField.discontinuityFlag;
+    BOOL isDuplicateCC = _hasLastCC &&
+        tsPacket.header.continuityCounter == _lastContinuityCounter &&
+        !tsPacket.adaptationField.discontinuityFlag;
 
-    [self setLastPacket:tsPacket];
+    _hasLastCC = YES;
+    _lastContinuityCounter = tsPacket.header.continuityCounter;
 
     if (isDuplicateCC) {
         // FIXME MG: Consider not only duplicate CCs but also gaps

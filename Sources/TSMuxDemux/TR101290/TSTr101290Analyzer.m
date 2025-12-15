@@ -25,50 +25,50 @@
 
 @implementation TSContinuityCounter
 {
-    TSPacket *mLastPacket; // FIXME MG <-- Only save CC, not entire packet.
-    TSPacket *mSecondLastPacket;
+    BOOL mHasLastCC;
+    BOOL mHasSecondLastCC;
+    uint8_t mLastCC;
+    uint8_t mSecondLastCC;
 }
 
 -(NSString* _Nullable)validateContinuityCounter:(TSPacket* _Nonnull)currentPacket
 {
-    NSString *error = [self validateContinuityCounter:currentPacket
-                                                         lastPacket:mLastPacket
-                                                   secondLastPacket:mSecondLastPacket];
-    if (error) {
-        //NSLog(@"CC error for pid '%u' ('%@'): got '%u', expected '%u'. %@", self.pid, [TSAccessUnit streamTypeDescription:self.streamType], ccError.receivedCC, ccError.expectedCC, ccError.message);
-    }
-    
+    NSString *error = [self validateCurrentPacket:currentPacket];
+
     // Start over on discontinuity
-    mSecondLastPacket = currentPacket.adaptationField.discontinuityFlag ? nil : mLastPacket;
-    mLastPacket = currentPacket;
-    
+    if (currentPacket.adaptationField.discontinuityFlag) {
+        mHasSecondLastCC = NO;
+    } else {
+        mHasSecondLastCC = mHasLastCC;
+        mSecondLastCC = mLastCC;
+    }
+    mHasLastCC = YES;
+    mLastCC = currentPacket.header.continuityCounter;
+
     return error;
 }
 
-
--(NSString* _Nullable)validateContinuityCounter:(TSPacket*)currentPacket
-                                                   lastPacket:(TSPacket*)lastPacket
-                                             secondLastPacket:(TSPacket*)secondLastPacket
+-(NSString* _Nullable)validateCurrentPacket:(TSPacket*)currentPacket
 {
-    if (!lastPacket || currentPacket.adaptationField.discontinuityFlag) {
+    if (!mHasLastCC || currentPacket.adaptationField.discontinuityFlag) {
         // The continuity counter may be discontinuous when the discontinuity_indicator is set to '1' (refer to 2.4.3.4).
         return nil;
     }
-    
+
     // The continuity_counter shall not be incremented when the adaptation_field_control of the packet equals '00' or '10'.
     BOOL isExpectingIncrementedCC =
-    currentPacket.header.adaptationMode != TSAdaptationModeReserved &&
-    currentPacket.header.adaptationMode != TSAdaptationModeAdaptationOnly;
-    BOOL isDuplicate = currentPacket.header.continuityCounter == lastPacket.header.continuityCounter;
-    uint8_t nextExpectedCc = [self nextContinuityCounter:lastPacket.header.continuityCounter];
-    
+        currentPacket.header.adaptationMode != TSAdaptationModeReserved &&
+        currentPacket.header.adaptationMode != TSAdaptationModeAdaptationOnly;
+    BOOL isDuplicate = currentPacket.header.continuityCounter == mLastCC;
+    uint8_t nextExpectedCc = [self nextContinuityCounter:mLastCC];
+
     if (isExpectingIncrementedCC && currentPacket.header.continuityCounter != nextExpectedCc) {
-        BOOL tooManyDuplicates = secondLastPacket && secondLastPacket.header.continuityCounter == lastPacket.header.continuityCounter;
+        BOOL tooManyDuplicates = mHasSecondLastCC && mSecondLastCC == mLastCC;
         if (!isDuplicate) {
             return [NSString stringWithFormat:@"Got %u but expected incremented (%u) or duplicate CC (%u)",
                     currentPacket.header.continuityCounter,
                     nextExpectedCc,
-                    lastPacket.header.continuityCounter
+                    mLastCC
             ];
         } else if (tooManyDuplicates) {
             return [NSString stringWithFormat:@"Too many packets (>= 3) with same CC (%u)", currentPacket.header.continuityCounter];
@@ -76,7 +76,7 @@
     } else if (!isExpectingIncrementedCC && !isDuplicate) {
         return [NSString stringWithFormat:@"Got %u but expected duplicate/not-incremented CC (%u)",
                 currentPacket.header.continuityCounter,
-                lastPacket.header.continuityCounter
+                mLastCC
         ];
     }
     return nil;
