@@ -8,33 +8,9 @@
 
 #import <Foundation/Foundation.h>
 #import <CoreMedia/CoreMedia.h>
+#import "TSStreamType.h"
 @class TSPacket;
 @class TSDescriptor;
-
-// Descriptor tags defined in ISO/IEC 13818-1 / ITU-T H.222.0
-// https://en.wikipedia.org/wiki/Program-specific_information#Elementary_stream_types
-typedef NS_ENUM(uint8_t, TSStreamType) {
-    TSStreamTypeMPEG1Audio                           = 0x03, // ISO/IEC 11172-3 (MPEG-1 Audio Layer I, II, III)
-    TSStreamTypeMPEG2Audio                           = 0x04, // ISO/IEC 13818-3 (MPEG-2 Audio)
-    // TSStreamTypePrivateData: type of data is determined by descriptor tags (TSDescriptorTag).
-    // AC-3 System B (DVB) uses this with AC-3 descriptor (0x6A).
-    TSStreamTypePrivateData                          = 0x06,
-    TSStreamTypeADTSAAC                              = 0x0f, // ISO/IEC 13818-7 (AAC with ADTS transport)
-    TSStreamTypeLATMAAC                              = 0x11, // ISO/IEC 14496-3 (AAC with LATM transport)
-    TSStreamTypeH264                                 = 0x1b,
-    TSStreamTypeH265                                 = 0x24,
-    // ATSC stream types (user private range 0x80-0xFF)
-    TSStreamTypeATSCAC3                              = 0x81, // ATSC A/52 Dolby Digital AC-3 (System A)
-    TSStreamTypeATSCEAC3                             = 0x87, // ATSC A/52 Dolby Digital Plus E-AC-3 (System A)
-    // Synthetic stream types (resolved from descriptors, not raw PMT stream_type)
-    TSStreamTypeBSSD                                 = 0xBD, // SMPTE 302M (AES3/BSSD) - detected via Registration descriptor
-};
-
-// Defined in ANSI/SCTE 35 - Digital Program Insertion Cueing Message
-// Uses range 0x80 - 0xFF (i.e. of the user defined range)
-typedef NS_ENUM(uint8_t, TSScte35StreamType) {
-    TSScte35StreamTypeSpliceInfo                     = 0x86
-};
 
 /// See "Rec. ITU-T H.222.0 (03/2017)"
 /// section "2.4.3.6 PES packet" page 37
@@ -51,6 +27,7 @@ typedef NS_ENUM(uint8_t, TSScte35StreamType) {
 /// Set to true if the ts packet is flagged as discontinuous. Should be used as a hint to e.g. reset PTS-anchors etc.
 @property(nonatomic, readonly) BOOL isDiscontinuous;
 
+/// Raw stream_type from PMT. Use resolvedStreamType for codec identification.
 @property(nonatomic, readonly) uint8_t streamType;
 @property(nonatomic, readonly, nullable) NSArray<TSDescriptor*> *descriptors;
 
@@ -75,20 +52,12 @@ typedef NS_ENUM(uint8_t, TSScte35StreamType) {
 /// Converts the pts and dts to the MPEG-TS timescale.
 -(NSData* _Nonnull)toTsPacketPayload;
 
--(BOOL)isAudioStreamType;
-+(BOOL)isAudioStreamType:(uint8_t)streamType
-             descriptors:(NSArray<TSDescriptor*>* _Nullable)descriptors;
+/// Returns the resolved stream type by examining streamType and descriptors.
+-(TSResolvedStreamType)resolvedStreamType;
 
-/// Returns the resolved stream type after examining descriptors.
-/// For example, PrivateData (0x06) with a BSSD Registration descriptor resolves to TSStreamTypeBSSD.
--(uint8_t)resolvedStreamType;
-+(uint8_t)resolvedStreamType:(uint8_t)streamType
-                 descriptors:(NSArray<TSDescriptor*>* _Nullable)descriptors;
+-(BOOL)isAudio;
+-(BOOL)isVideo;
 
--(BOOL)isVideoStreamType;
-+(BOOL)isVideoStreamType:(uint8_t)streamType;
-
--(NSString* _Nonnull)streamTypeDescription;
-+(NSString* _Nonnull)streamTypeDescription:(uint8_t)streamType;
+-(NSString* _Nonnull)resolvedStreamTypeDescription;
 
 @end

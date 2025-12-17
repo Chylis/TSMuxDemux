@@ -164,6 +164,15 @@ typedef NS_ENUM(uint8_t, TSST2038DescriptorTag) {
     TSST2038DescriptorTagAncData                        = 0xC4
 };
 
+// Defined in ATSC A/65 - Program and System Information Protocol
+typedef NS_ENUM(uint8_t, TSAtscDescriptorTag) {
+    TSAtscDescriptorTagExtendedChannelName              = 0xA0,
+    TSAtscDescriptorTagServiceLocation                  = 0xA1,
+    TSAtscDescriptorTagTimeShiftedService               = 0xA2,
+    TSAtscDescriptorTagComponentName                    = 0xA3,
+    TSAtscDescriptorTagContentAdvisory                  = 0x87,
+};
+
 
 
 

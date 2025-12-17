@@ -16,11 +16,32 @@
 #import "Table/TSProgramMapTable.h"
 #import "Table/TSProgramSpecificInformationTable.h"
 #import "Table/DVB/TSDvbServiceDescriptionTable.h"
+#import "Table/ATSC/TSAtscVirtualChannelTable.h"
 #import "TSAccessUnit.h"
 #import "TSElementaryStream.h"
 #import "TSElementaryStreamBuilder.h"
 #import "Table/TSPsiTableBuilder.h"
 #import "TSTimeUtil.h"
+
+#pragma mark - DVB State Wrapper
+
+@interface TSDemuxerDVBState()
+@property(nonatomic, readwrite, nullable) TSDvbServiceDescriptionTable *sdt;
+@end
+
+@implementation TSDemuxerDVBState
+@end
+
+#pragma mark - ATSC State Wrapper
+
+@interface TSDemuxerATSCState()
+@property(nonatomic, readwrite, nullable) TSAtscVirtualChannelTable *vct;
+@end
+
+@implementation TSDemuxerATSCState
+@end
+
+#pragma mark - TSDemuxer
 
 @interface TSDemuxer() <TSPsiTableBuilderDelegate, TSElementaryStreamBuilderDelegate>
 
@@ -40,19 +61,21 @@
     NSDictionary<NSNumber*, TSProgramMapTable*> *_cachedPmtsByPid;
 }
 
--(instancetype)initWithDelegate:(id<TSDemuxerDelegate>)delegate
+-(instancetype)initWithDelegate:(id<TSDemuxerDelegate>)delegate mode:(TSDemuxerMode)mode
 {
     self = [super init];
     if (self) {
+        _mode = mode;
         self.delegate = delegate;
         self.streamBuilders = [NSMutableDictionary dictionary];
         self.tsPacketAnalyzer = [TSTr101290Analyzer new];
         self.pendingCompletedSections = [NSMutableArray array];
 
         _pmts = [NSMutableDictionary dictionary];
+        _dvb = [TSDemuxerDVBState new];
+        _atsc = [TSDemuxerATSCState new];
 
         self.tableBuilders = [NSMutableDictionary dictionary];
-
     }
     return self;
 }
@@ -70,12 +93,26 @@
 
 -(void)setSdt:(TSDvbServiceDescriptionTable*)sdt
 {
-    TSDvbServiceDescriptionTable *prevSdt = self.sdt;
+    TSDvbServiceDescriptionTable *prevSdt = self.dvb.sdt;
     if ([sdt isEqual:prevSdt]) {
         return;
     }
-    _sdt = sdt;
-    [self.delegate demuxer:self didReceiveSdt:sdt previousSdt:prevSdt];
+    self.dvb.sdt = sdt;
+    if ([self.delegate respondsToSelector:@selector(demuxer:didReceiveSdt:previousSdt:)]) {
+        [self.delegate demuxer:self didReceiveSdt:sdt previousSdt:prevSdt];
+    }
+}
+
+-(void)setVct:(TSAtscVirtualChannelTable*)vct
+{
+    TSAtscVirtualChannelTable *prevVct = self.atsc.vct;
+    if ([vct isEqual:prevVct]) {
+        return;
+    }
+    self.atsc.vct = vct;
+    if ([self.delegate respondsToSelector:@selector(demuxer:didReceiveVct:previousVct:)]) {
+        [self.delegate demuxer:self didReceiveVct:vct previousVct:prevVct];
+    }
 }
 
 -(void)updatePmt:(TSProgramMapTable*)pmt
@@ -163,6 +200,7 @@
         uint16_t pid = tsPacket.header.pid;
         //NSLog(@"Received pid '%u'", pid);
 
+        // Standard-agnostic PIDs
         if (pid == PID_PAT) {
             TSPsiTableBuilder *builder = [self.tableBuilders objectForKey:@(pid)];
             if (!builder) {
@@ -182,17 +220,33 @@
         } else if (pid == PID_ASI) {
             // TODO Parse...
             NSLog(@"Received ASI");
-        } else if (pid == PID_DVB_SDT_BAT_ST) {
+        } else if (pid == PID_NULL_PACKET) {
+            // Null packet - ignore
+            //NSLog(@"Received null packet");
+        }
+        // DVB-specific PIDs (only in DVB mode)
+        else if (self.mode == TSDemuxerModeDVB && pid == PID_DVB_SDT_BAT_ST) {
             TSPsiTableBuilder *builder = [self.tableBuilders objectForKey:@(pid)];
             if (!builder) {
                 builder = [[TSPsiTableBuilder alloc] initWithDelegate:self pid:pid];
                 [self.tableBuilders setObject:builder forKey:@(pid)];
             }
             [builder addTsPacket:tsPacket];
-        } else if (pid == PID_NULL_PACKET) {
-            // TODO Parse...
-            //NSLog(@"Received null packet");
-        } else {
+        } else if (self.mode == TSDemuxerModeDVB && pid >= PID_DVB_NIT_ST && pid <= PID_DVB_SIT) {
+            // Other DVB reserved PIDs - not yet implemented
+            // NSLog(@"Received DVB reserved PID: 0x%04X", pid);
+        }
+        // ATSC-specific PIDs (only in ATSC mode)
+        else if (self.mode == TSDemuxerModeATSC && pid == PID_ATSC_PSIP) {
+            TSPsiTableBuilder *builder = [self.tableBuilders objectForKey:@(pid)];
+            if (!builder) {
+                builder = [[TSPsiTableBuilder alloc] initWithDelegate:self pid:pid];
+                [self.tableBuilders setObject:builder forKey:@(pid)];
+            }
+            [builder addTsPacket:tsPacket];
+        }
+        // PMT and elementary streams
+        else {
             ProgramNumber programNumber = [self.pat programNumberFromPid:pid];
             const BOOL isPidInPat = programNumber != nil;
             if (isPidInPat) {
@@ -213,7 +267,7 @@
                 isPes = YES;
             }
         }
-        
+
         TSTr101290AnalyzeContext *context = [[TSTr101290AnalyzeContext alloc]
                                              initWithPat:self.pat
                                              pmts:self.pmtsByPid
@@ -223,7 +277,7 @@
 
         // Clear pending sections after analysis
         [self.pendingCompletedSections removeAllObjects];
-        
+
         if (isPes) {
             TSElementaryStreamBuilder *builder = [self.streamBuilders objectForKey:@(pid)];
             [builder addTsPacket:tsPacket];
@@ -237,14 +291,32 @@
     TSTr101290CompletedSection *completed = [[TSTr101290CompletedSection alloc] initWithSection:table pid:builder.pid];
     [self.pendingCompletedSections addObject:completed];
 
+    // Standard-agnostic tables
     if (table.tableId == TABLE_ID_PAT) {
         self.pat = [[TSProgramAssociationTable alloc] initWithPSI:table];
     } else if (table.tableId == TABLE_ID_PMT) {
         [self updatePmt:[[TSProgramMapTable alloc] initWithPSI:table]];
-    } else if (table.tableId == TABLE_ID_DVB_SDT_ACTUAL_TS) {
-        self.sdt = [[TSDvbServiceDescriptionTable alloc] initWithPSI:table];
-    } else {
-        NSLog(@"Received unhandled PSI table pid: %u, tableId: %u", builder.pid, table.tableId);
+    }
+    // DVB tables (only in DVB mode)
+    else if (self.mode == TSDemuxerModeDVB && table.tableId == TABLE_ID_DVB_SDT_ACTUAL_TS) {
+        [self setSdt:[[TSDvbServiceDescriptionTable alloc] initWithPSI:table]];
+    }
+    // ATSC tables (only in ATSC mode)
+    else if (self.mode == TSDemuxerModeATSC &&
+             (table.tableId == TABLE_ID_ATSC_TVCT || table.tableId == TABLE_ID_ATSC_CVCT)) {
+        [self setVct:[[TSAtscVirtualChannelTable alloc] initWithPSI:table]];
+    }
+    // ATSC tables we acknowledge but don't parse (MGT, STT, RRT, EIT, ETT)
+    else if (self.mode == TSDemuxerModeATSC &&
+             (table.tableId == TABLE_ID_ATSC_MGT ||
+              table.tableId == TABLE_ID_ATSC_STT ||
+              table.tableId == TABLE_ID_ATSC_RRT ||
+              table.tableId == TABLE_ID_ATSC_EIT ||
+              table.tableId == TABLE_ID_ATSC_ETT)) {
+        // TODO Parse...
+    }
+    else {
+        NSLog(@"Received unhandled PSI table pid: %u, tableId: 0x%02X", builder.pid, table.tableId);
     }
 }
 

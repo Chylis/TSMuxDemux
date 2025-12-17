@@ -310,7 +310,7 @@
 
         for (TSElementaryStream *es in pmt.elementaryStreams) {
             // Only check video/audio PIDs
-            if (![es isVideoStreamType] && ![es isAudioStreamType]) {
+            if (![es isVideo] && ![es isAudio]) {
                 continue;
             }
 

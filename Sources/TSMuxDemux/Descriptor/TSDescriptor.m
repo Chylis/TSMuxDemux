@@ -12,6 +12,7 @@
 #import "TSISO639LanguageDescriptor.h"
 #import "DVB/TSDvbServiceDescriptor.h"
 #import "SCTE35/TSScte35CueIdentifierDescriptor.h"
+#import "ATSC/TSAtscServiceLocationDescriptor.h"
 
 #pragma mark - TSDescriptor
 
@@ -36,6 +37,9 @@
             break;
         case TSScte35DescriptorTagCueIdentifier:
             descriptorClass = [TSScte35CueIdentifierDescriptor class];
+            break;
+        case TSAtscDescriptorTagServiceLocation:
+            descriptorClass = [TSAtscServiceLocationDescriptor class];
             break;
     }
     if (descriptorClass) {
@@ -357,7 +361,20 @@
         case TSST2038DescriptorTagAncData:
             return @"ST-2038 Anc data";
     }
-    
+
+    switch ((TSAtscDescriptorTag)descriptorTag) {
+        case TSAtscDescriptorTagExtendedChannelName:
+            return @"Extended channel name";
+        case TSAtscDescriptorTagServiceLocation:
+            return @"Service location";
+        case TSAtscDescriptorTagTimeShiftedService:
+            return @"Time-shifted service";
+        case TSAtscDescriptorTagComponentName:
+            return @"Component name";
+        case TSAtscDescriptorTagContentAdvisory:
+            return @"Content advisory";
+    }
+
     return [NSString stringWithFormat:@"Private: 0x%02x", descriptorTag];
 }
 

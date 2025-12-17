@@ -24,7 +24,7 @@
 @property(nonatomic, weak, nullable) id<TSPsiTableBuilderDelegate> delegate;
 
 @property(nonatomic, readonly) uint16_t pid;
-@property(nonatomic, readonly) TSStreamType streamType;
+@property(nonatomic, readonly) uint8_t streamType;
 @property(nonatomic, readonly, nullable) NSArray<TSDescriptor*>* descriptors;
 
 -(instancetype _Nonnull)initWithDelegate:(id<TSPsiTableBuilderDelegate> _Nullable)delegate

@@ -7,6 +7,7 @@
 //
 
 #import "TSElementaryStream.h"
+#import "TSStreamType.h"
 #import "Descriptor/TSDescriptor.h"
 
 #pragma mark - TSElementaryStream
@@ -14,7 +15,7 @@
 @implementation TSElementaryStream
 
 -(instancetype)initWithPid:(uint16_t)pid
-                streamType:(TSStreamType)streamType
+                streamType:(uint8_t)streamType
                descriptors:(NSArray<TSDescriptor *> *_Nullable)descriptors
 {
     self = [super init];
@@ -76,20 +77,26 @@
     return self.pid ^ (self.streamType << 16) ^ descriptorsHash;
 }
 
--(BOOL)isAudioStreamType
+-(TSResolvedStreamType)resolvedStreamType
 {
-    return [TSAccessUnit isAudioStreamType:self.streamType descriptors:self.descriptors];
+    return [TSStreamType resolveStreamType:self.streamType descriptors:self.descriptors];
 }
--(BOOL)isVideoStreamType
+
+-(BOOL)isAudio
 {
-    return [TSAccessUnit isVideoStreamType:self.streamType];
+    return [TSStreamType isAudio:[self resolvedStreamType]];
+}
+
+-(BOOL)isVideo
+{
+    return [TSStreamType isVideo:[self resolvedStreamType]];
 }
 
 -(NSString*)description
 {
     NSMutableString *desc = [NSMutableString stringWithFormat:@"Pid: %hu, %@",
                              self.pid,
-                             [TSAccessUnit streamTypeDescription:self.streamType]];
+                             [TSStreamType descriptionForResolvedStreamType:[self resolvedStreamType]]];
     
     if (self.descriptors.count > 0) {
         [desc appendString:@", Tags: "];

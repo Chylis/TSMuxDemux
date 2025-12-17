@@ -27,7 +27,7 @@
 
 -(instancetype _Nonnull)initWithDelegate:(id<TSElementaryStreamBuilderDelegate>)delegate
                                      pid:(uint16_t)pid
-                              streamType:(TSStreamType)streamType
+                              streamType:(uint8_t)streamType
                              descriptors:(NSArray<TSDescriptor *> * _Nullable)descriptors
 {
     self = [super init];

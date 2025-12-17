@@ -10,13 +10,6 @@
 #import "TSPacket.h"
 #import "TSConstants.h"
 #import "TSTimeUtil.h"
-#import "Descriptor/TSDescriptor.h"
-#import "Descriptor/TSRegistrationDescriptor.h"
-
-// Registration descriptor format identifiers (SMPTE RA registered)
-// https://smpte-ra.org/registered-mpeg-ts-ids
-static const uint32_t kFormatIdentifierAC3  = 0x41432D33; // ASCII: "AC-3"
-static const uint32_t kFormatIdentifierBSSD = 0x42535344; // ASCII: "BSSD" (AES3/SMPTE 302M)
 
 #pragma mark - TSAccessUnit
 
@@ -50,29 +43,29 @@ static const uint8_t TIMESTAMP_LENGTH = 5; // A timestamp (pts/dts) is a 33-bit 
                                streamType:(uint8_t)streamType
                               descriptors:(NSArray<TSDescriptor *> * _Nullable)descriptors
 {
-    
+
     uint32_t bytes1To4 = 0x00;
     [packet.payload getBytes:&bytes1To4 range:NSMakeRange(0, 4)];
     const uint8_t streamId = CFSwapInt32BigToHost(bytes1To4) & (uint32_t)0xFF;
     const uint32_t startCode = (CFSwapInt32BigToHost(bytes1To4) & 0xFFFFFF00) >> 8;
     // FIXME MG: NSAssert(startCode == 0x01, @"Invalid PES header startcode");
-    
+
     //    uint16_t bytes5And6 = 0x00;
     //    [packet.payload getBytes:&bytes5And6 range:NSMakeRange(4, 2)];
     //    const uint16_t pesPacketLength = CFSwapInt16BigToHost(bytes5And6);
-    
+
     // TODO: Parse byte7/flags1 and add properties accordingly
-    
+
     uint8_t byte8 = 0x00;
     [packet.payload getBytes:&byte8 range:NSMakeRange(7, 1)];
     const BOOL hasPts = (byte8 & 0x80) != 0x00;
     const BOOL hasDts = (byte8 & 0x40) != 0x00;
-    
+
     uint8_t byte9 = 0x00;
     [packet.payload getBytes:&byte9 range:NSMakeRange(8, 1)];
     // The number of bytes of optional header data present in the header before the first byte of the PES-packet payload is reached.
     const uint8_t pesHeaderDataLength = byte9;
-    
+
     uint64_t pts = 0x0;
     uint64_t dts = 0x0;
     if (hasPts) {
@@ -84,7 +77,7 @@ static const uint8_t TIMESTAMP_LENGTH = 5; // A timestamp (pts/dts) is a 33-bit 
         uint64_t ptsBits14To7 = ptsBytes[3];
         uint64_t ptsBits7To0 = (ptsBytes[4] >> 1) & 0x7F;
         pts = (ptsBits32To30 << 30) | (ptsBits29To22 << 22) | (ptsBits22To15 << 15) | (ptsBits14To7 << 7) | ptsBits7To0;
-        
+
         if (hasDts) {
             uint8_t dtsBytes[5];
             [packet.payload getBytes:dtsBytes range:NSMakeRange(9+TIMESTAMP_LENGTH, TIMESTAMP_LENGTH)];
@@ -96,11 +89,11 @@ static const uint8_t TIMESTAMP_LENGTH = 5; // A timestamp (pts/dts) is a 33-bit 
             dts = (dtsBits32To30 << 30) | (dtsBits29To22 << 22) | (dtsBits22To15 << 15) | (dtsBits14To7 << 7) | dtsBits7To0;
         }
     }
-    
+
     const NSUInteger payloadOffset = 9 + pesHeaderDataLength;
     const NSUInteger payloadSize = packet.payload.length - payloadOffset;
     NSData *data = [packet.payload subdataWithRange:NSMakeRange(payloadOffset, payloadSize)];
-    
+
     return [[TSAccessUnit alloc] initWithPid:pid
                                          pts:pts == 0 ? kCMTimeInvalid : CMTimeMake(pts, TS_TIMESTAMP_TIMESCALE)
                                          dts:dts == 0 ? kCMTimeInvalid : CMTimeMake(dts, TS_TIMESTAMP_TIMESCALE)
@@ -114,9 +107,9 @@ static const uint8_t TIMESTAMP_LENGTH = 5; // A timestamp (pts/dts) is a 33-bit 
 {
     const BOOL hasPTS = !CMTIME_IS_INVALID(self.pts);
     const BOOL hasDTS = !CMTIME_IS_INVALID(self.dts);
-    
+
     NSMutableData *header = [NSMutableData data];
-    
+
     // Start code (4 bytes)
     uint8_t startCode[4];
     startCode[0] = 0x00;
@@ -124,7 +117,7 @@ static const uint8_t TIMESTAMP_LENGTH = 5; // A timestamp (pts/dts) is a 33-bit 
     startCode[2] = 0x01;
     startCode[3] = self.streamId;
     [header appendBytes:startCode length:4];
-    
+
     // PES-packet length (2 bytes):
     // Specifies the number of bytes remaining in the packet after this field.
     // Can be zero for video access units.
@@ -133,16 +126,16 @@ static const uint8_t TIMESTAMP_LENGTH = 5; // A timestamp (pts/dts) is a 33-bit 
     if (hasPTS) {
         ptsDtsIndicator = 0x02; // 0x02 equals only PTS available
         pesPacketLength += TIMESTAMP_LENGTH;
-        
+
         if (hasDTS) {
             ptsDtsIndicator = 0x03; // 0x03 equals both PTS and DTS available
             pesPacketLength += TIMESTAMP_LENGTH;
         }
     }
-    
+
     pesPacketLength = CFSwapInt16HostToBig(pesPacketLength);
     [header appendBytes:&pesPacketLength length:2];
-    
+
     // Flags-1 (1 byte)
     // bits 1-2:    10 (marker bits)
     // bits 3-4:    00 (not scrambled)
@@ -152,7 +145,7 @@ static const uint8_t TIMESTAMP_LENGTH = 5; // A timestamp (pts/dts) is a 33-bit 
     // bit 8:       0 (original or copy)
     const uint8_t flags1 = 0b10000000;
     [header appendBytes:&flags1 length:1];
-    
+
     // Flags-2 (1 byte)
     // bits 1-2:    11 or 10 or 00 (pts+dts indicator)
     // bit 3:       0 (ESCR)
@@ -163,12 +156,12 @@ static const uint8_t TIMESTAMP_LENGTH = 5; // A timestamp (pts/dts) is a 33-bit 
     // bit 8:       0 (PES extension)
     const uint8_t flags2 = ptsDtsIndicator << 6;
     [header appendBytes:&flags2 length:1];
-    
+
     // PES header data length:
     // The number of bytes of optional header data present in the header before the first byte of the PES-packet payload is reached.
     uint8_t pesHeaderDataLength = (hasPTS && hasDTS ? 2 : hasPTS ? 1 : 0) * TIMESTAMP_LENGTH;
     [header appendBytes:&pesHeaderDataLength length:1];
-    
+
     if (hasPTS) {
         uint64_t pts = [TSTimeUtil convertTimeToUIntTime:self.pts withNewTimescale:TS_TIMESTAMP_TIMESCALE];
         // PTS (5 bytes)
@@ -187,9 +180,9 @@ static const uint8_t TIMESTAMP_LENGTH = 5; // A timestamp (pts/dts) is a 33-bit 
         // bit 33-39:   Bits 6-0 of the PTS
         // bit 40:      0x1 (marker bit)
         ptsSection[4] = (pts << 1) | 0x01;
-        
+
         [header appendBytes:ptsSection length:TIMESTAMP_LENGTH];
-        
+
         if (hasDTS) {
             uint64_t dts = [TSTimeUtil convertTimeToUIntTime:self.dts withNewTimescale:TS_TIMESTAMP_TIMESCALE];
             // DTS (5 bytes)
@@ -208,11 +201,11 @@ static const uint8_t TIMESTAMP_LENGTH = 5; // A timestamp (pts/dts) is a 33-bit 
             // bit 33-39:   Bits 6-0 of the DTS
             // bit 40:      0x1 (marker bit)
             dtsSection[4] = (dts << 1) | 0x01;
-            
+
             [header appendBytes:dtsSection length:TIMESTAMP_LENGTH];
         }
     }
-    
+
     // Construct packet (i.e. header + payload)
     NSMutableData *packet = [NSMutableData dataWithData:header];
     [packet appendData:self.compressedData];
@@ -220,190 +213,29 @@ static const uint8_t TIMESTAMP_LENGTH = 5; // A timestamp (pts/dts) is a 33-bit 
     return packet;
 }
 
-
--(BOOL)isAudioStreamType
+-(TSResolvedStreamType)resolvedStreamType
 {
-    return [TSAccessUnit isAudioStreamType:self.streamType
-                               descriptors:self.descriptors];
+    return [TSStreamType resolveStreamType:self.streamType descriptors:self.descriptors];
 }
 
-+(BOOL)isAudioStreamType:(uint8_t)streamType
-             descriptors:(NSArray<TSDescriptor*>* _Nullable)descriptors
+-(BOOL)isAudio
 {
-    switch (streamType) {
-        case TSStreamTypeH264:
-            return NO;
-        case TSStreamTypeH265:
-            return NO;
-        case TSStreamTypeMPEG1Audio:
-            return YES;
-        case TSStreamTypeMPEG2Audio:
-            return YES;
-        case TSStreamTypeADTSAAC:
-            return YES;
-        case TSStreamTypeLATMAAC:
-            return YES;
-        // ATSC AC-3 System A
-        case TSStreamTypeATSCAC3:
-            return YES;
-        case TSStreamTypeATSCEAC3:
-            return YES;
-        // AC-3 System B (DVB) and other private data audio
-        case TSStreamTypePrivateData: {
-            for (TSDescriptor *d in descriptors) {
-                // Check descriptor tags (e.g., AC-3, E-AC-3, AAC descriptors)
-                if ([TSDescriptor isAudioDescriptor:d.descriptorTag]) {
-                    return YES;
-                }
-                // Check Registration descriptor for audio format identifiers
-                if ([d isKindOfClass:[TSRegistrationDescriptor class]]) {
-                    TSRegistrationDescriptor *reg = (TSRegistrationDescriptor *)d;
-                    if (reg.formatIdentifier == kFormatIdentifierAC3 ||
-                        reg.formatIdentifier == kFormatIdentifierBSSD) {
-                        return YES;
-                    }
-                }
-            }
-        }
-    }
-    return NO;
+    return [TSStreamType isAudio:[self resolvedStreamType]];
 }
 
--(uint8_t)resolvedStreamType
+-(BOOL)isVideo
 {
-    return [TSAccessUnit resolvedStreamType:self.streamType descriptors:self.descriptors];
+    return [TSStreamType isVideo:[self resolvedStreamType]];
 }
 
-+(uint8_t)resolvedStreamType:(uint8_t)streamType
-                 descriptors:(NSArray<TSDescriptor*>* _Nullable)descriptors
+-(NSString*)resolvedStreamTypeDescription
 {
-    if (streamType == TSStreamTypePrivateData) {
-        for (TSDescriptor *d in descriptors) {
-            // Check Registration descriptor for known format identifiers
-            if ([d isKindOfClass:[TSRegistrationDescriptor class]]) {
-                TSRegistrationDescriptor *reg = (TSRegistrationDescriptor *)d;
-                if (reg.formatIdentifier == kFormatIdentifierBSSD) {
-                    return TSStreamTypeBSSD;
-                }
-            }
-            // Check DVB AC-3 descriptor (tag 0x6A)
-            if (d.descriptorTag == TSDvbDescriptorTagAC3) {
-                return TSStreamTypeATSCAC3;
-            }
-            // Check DVB Enhanced AC-3 descriptor (tag 0x7A)
-            if (d.descriptorTag == TSDvbDescriptorTagEnhancedAC3) {
-                return TSStreamTypeATSCEAC3;
-            }
-        }
-    }
-    return streamType;
-}
-
--(BOOL)isVideoStreamType
-{
-    return [TSAccessUnit isVideoStreamType:self.streamType];
-}
-+(BOOL)isVideoStreamType:(uint8_t)streamType
-{
-    switch (streamType) {
-        case TSStreamTypeH264:       return YES;
-        case TSStreamTypeH265:       return YES;
-        case TSStreamTypeMPEG1Audio: return NO;
-        case TSStreamTypeMPEG2Audio: return NO;
-        case TSStreamTypeADTSAAC:    return NO;
-        case TSStreamTypeLATMAAC:    return NO;
-        case TSStreamTypeATSCAC3:    return NO;
-        case TSStreamTypeATSCEAC3:   return NO;
-        case TSStreamTypePrivateData: return NO;
-        case TSStreamTypeBSSD:       return NO;
-    }
-}
-
-
--(NSString*)streamTypeDescription
-{
-    return [TSAccessUnit streamTypeDescription:self.streamType];
-}
-+(NSString*)streamTypeDescription:(uint8_t)streamType
-{
-    NSString *type = nil;
-    switch ((TSStreamType)streamType) {
-        case TSStreamTypeMPEG1Audio:
-            type = @"MPEG-1 Audio";
-            break;
-        case TSStreamTypeMPEG2Audio:
-            type = @"MPEG-2 Audio";
-            break;
-        case TSStreamTypeADTSAAC:
-            type = @"ADTS AAC";
-            break;
-        case TSStreamTypeLATMAAC:
-            type = @"LATM AAC";
-            break;
-        case TSStreamTypeH264:
-            type = @"H264";
-            break;
-        case TSStreamTypeH265:
-            type = @"H265";
-            break;
-        case TSStreamTypePrivateData:
-            type = @"PES private data";
-            break;
-        case TSStreamTypeATSCAC3:
-            type = @"AC-3";
-            break;
-        case TSStreamTypeATSCEAC3:
-            type = @"E-AC-3";
-            break;
-        case TSStreamTypeBSSD:
-            type = @"SMPTE302M";
-            break;
-    }
-
-    switch ((TSScte35StreamType)streamType) {
-        case TSScte35StreamTypeSpliceInfo:
-            type = @"SCTE-35 splice info";
-            break;
-    }
-
-    if (!type) {
-        type = [NSString stringWithFormat:@"0x%02x", streamType];
-    }
-    return [NSString stringWithFormat:@"%@", type];
-}
-
-/// The stream_id may be set to any valid value which correctly describes the elementary stream type as defined in Table 2-22.
-/// See "Rec. ITU-T H.222.0 (03/2017)"
-/// section "Table 2-22 – Stream_id assignments"      page 40
-+(uint8_t)streamIdFromStreamType:(TSStreamType)streamType
-{
-    switch (streamType) {
-        case TSStreamTypeMPEG1Audio:
-        case TSStreamTypeMPEG2Audio:
-        case TSStreamTypeADTSAAC:
-        case TSStreamTypeLATMAAC:
-            // ISO/IEC 13818-3 or ISO/IEC 11172-3 or ISO/IEC 13818-7 or ISO/IEC 14496-3 audio stream number x xxxx
-            // 110X XXXX, where X can be 0 or 1 (doesn't matter) = 0xC0
-            return 0xC0;
-
-        case TSStreamTypeH264:
-        case TSStreamTypeH265:
-            // Rec. ITU-T H.262 | ISO/IEC 13818-2, ISO/IEC 11172-2, ISO/IEC 14496-2 or Rec. ITU-T H.264 | ISO/IEC 14496-10 video stream number xxxx
-            // 1110 XXXX, where X can be 0 or 1 (doesn't matter) = 0xE0
-            return 0xE0;
-
-        case TSStreamTypePrivateData:
-        case TSStreamTypeATSCAC3:
-        case TSStreamTypeATSCEAC3:
-        case TSStreamTypeBSSD:
-            return 0xBD; // Private_stream_1
-    }
-    return 0xBD; // Default to private stream
+    return [TSStreamType descriptionForResolvedStreamType:[self resolvedStreamType]];
 }
 
 -(uint8_t)streamId
 {
-    return [TSAccessUnit streamIdFromStreamType:self.streamType];
+    return [TSStreamType streamIdFromStreamType:self.streamType];
 }
 
 @end

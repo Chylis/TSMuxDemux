@@ -14,7 +14,7 @@
 
 /// Each ts-packet is tagged with a PID value indicating to which elementary stream its payload belongs.
 @property(nonatomic, readonly) uint16_t pid;
-@property(nonatomic, readonly) TSStreamType streamType;
+@property(nonatomic, readonly) uint8_t streamType;
 @property(nonatomic, readonly, nullable) NSArray<TSDescriptor*>* descriptors;
 
 /// A 4-bit field incrementing with each ts-packet with the same PID. Wraps to 0 after its max value of 15 (max value = 2^4=16).
@@ -22,12 +22,12 @@
 
 
 -(instancetype _Nonnull)initWithPid:(uint16_t)pid
-                         streamType:(TSStreamType)streamType
+                         streamType:(uint8_t)streamType
                         descriptors:(NSArray<TSDescriptor*>* _Nullable)descriptors;
 
-
--(BOOL)isAudioStreamType;
--(BOOL)isVideoStreamType;
+-(TSResolvedStreamType)resolvedStreamType;
+-(BOOL)isAudio;
+-(BOOL)isVideo;
 
 @end
 

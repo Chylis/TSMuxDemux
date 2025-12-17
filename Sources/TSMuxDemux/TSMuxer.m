@@ -159,7 +159,7 @@
     }
     
     BOOL hasSetPcrPid = self.pcrPid != 0;
-    if (!hasSetPcrPid && [accessUnit isVideoStreamType]) {
+    if (!hasSetPcrPid && [accessUnit isVideo]) {
         self.pcrPid = accessUnit.pid;
     }
     
