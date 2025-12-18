@@ -10,7 +10,9 @@
 
 #import "TSRegistrationDescriptor.h"
 #import "TSISO639LanguageDescriptor.h"
+#import "TSHEVCVideoDescriptor.h"
 #import "DVB/TSDvbServiceDescriptor.h"
+#import "DVB/TSDvbComponentDescriptor.h"
 #import "SCTE35/TSScte35CueIdentifierDescriptor.h"
 #import "ATSC/TSAtscServiceLocationDescriptor.h"
 
@@ -32,8 +34,14 @@
         case TSDescriptorTagISO639Language:
             descriptorClass = [TSISO639LanguageDescriptor class];
             break;
+        case TSDescriptorTagHEVCVideo:
+            descriptorClass = [TSHEVCVideoDescriptor class];
+            break;
         case TSDvbDescriptorTagService:
             descriptorClass = [TSDvbServiceDescriptor class];
+            break;
+        case TSDvbDescriptorTagComponent:
+            descriptorClass = [TSDvbComponentDescriptor class];
             break;
         case TSScte35DescriptorTagCueIdentifier:
             descriptorClass = [TSScte35CueIdentifierDescriptor class];
