@@ -10,6 +10,7 @@
 #import "../../TSConstants.h"
 @class TSPacket;
 @class TSDescriptor;
+@class TSDvbServiceDescriptor;
 
 @interface TSDvbServiceDescriptionEntry : NSObject
 @property(nonatomic, readonly) uint16_t serviceId;
@@ -18,6 +19,12 @@
 @property(nonatomic, readonly) uint8_t runningStatus;
 @property(nonatomic, readonly) BOOL freeCaMode;
 @property(nonatomic, readonly) NSArray<TSDescriptor*> * _Nullable descriptors;
+
+#pragma mark - Util - Implemented/Parsed Descriptor Accessors
+
+/// Returns all service descriptors (tag 0x48) from this entry's descriptor loop.
+-(NSArray<TSDvbServiceDescriptor*>* _Nonnull)serviceDescriptors;
+
 @end
 
 @interface TSDvbServiceDescriptionTable : NSObject

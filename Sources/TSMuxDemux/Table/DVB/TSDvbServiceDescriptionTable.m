@@ -10,6 +10,7 @@
 #import "../../TSElementaryStream.h"
 #import "../../Descriptor/TSDescriptor.h"
 #import "../../Descriptor/TSRegistrationDescriptor.h"
+#import "../../Descriptor/DVB/TSDvbServiceDescriptor.h"
 
 @interface TSDvbServiceDescriptionEntry()
 -(instancetype)initWithServiceId:(uint16_t)serviceId
@@ -91,7 +92,7 @@
 -(NSString *)description
 {
     NSMutableString *formattedDescriptors = [NSMutableString stringWithFormat:@"%@", @""];
-    
+
     BOOL first = YES;
     for (TSDescriptor *d in self.descriptors) {
         if (!first) {
@@ -100,7 +101,7 @@
         [formattedDescriptors appendString:[d tagDescription]];
         first = NO;
     }
-    
+
     return [NSString stringWithFormat:@"{ serviceId: %hu, EITSchedule: %hhd, EITPresentFollowing: %hhd, runningStatus: %u, freeCaMode: %hhd, descriptors: %@}",
             _serviceId,
             _eitScheduleFlag,
@@ -109,6 +110,19 @@
             _freeCaMode,
             formattedDescriptors
     ];
+}
+
+#pragma mark - Util - Implemented/Parsed Descriptor Accessors
+
+-(NSArray<TSDvbServiceDescriptor*>*)serviceDescriptors
+{
+    NSMutableArray *result = [NSMutableArray array];
+    for (TSDescriptor *d in self.descriptors) {
+        if ([d isKindOfClass:[TSDvbServiceDescriptor class]]) {
+            [result addObject:d];
+        }
+    }
+    return result;
 }
 
 @end

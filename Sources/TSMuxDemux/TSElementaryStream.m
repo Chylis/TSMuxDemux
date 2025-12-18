@@ -9,6 +9,10 @@
 #import "TSElementaryStream.h"
 #import "TSStreamType.h"
 #import "Descriptor/TSDescriptor.h"
+#import "Descriptor/TSRegistrationDescriptor.h"
+#import "Descriptor/TSISO639LanguageDescriptor.h"
+#import "Descriptor/TSHEVCVideoDescriptor.h"
+#import "Descriptor/SCTE35/TSScte35CueIdentifierDescriptor.h"
 
 #pragma mark - TSElementaryStream
 
@@ -97,7 +101,7 @@
     NSMutableString *desc = [NSMutableString stringWithFormat:@"Pid: %hu, %@",
                              self.pid,
                              [TSStreamType descriptionForResolvedStreamType:[self resolvedStreamType]]];
-    
+
     if (self.descriptors.count > 0) {
         [desc appendString:@", Tags: "];
         BOOL first = YES;
@@ -109,9 +113,54 @@
             first = NO;
         }
     }
-    
+
     return desc;
 }
 
+#pragma mark - Util - Implemented/Parsed Descriptor Accessors
+
+-(NSArray<TSRegistrationDescriptor*>*)registrationDescriptors
+{
+    NSMutableArray *result = [NSMutableArray array];
+    for (TSDescriptor *d in self.descriptors) {
+        if ([d isKindOfClass:[TSRegistrationDescriptor class]]) {
+            [result addObject:d];
+        }
+    }
+    return result;
+}
+
+-(NSArray<TSISO639LanguageDescriptor*>*)languageDescriptors
+{
+    NSMutableArray *result = [NSMutableArray array];
+    for (TSDescriptor *d in self.descriptors) {
+        if ([d isKindOfClass:[TSISO639LanguageDescriptor class]]) {
+            [result addObject:d];
+        }
+    }
+    return result;
+}
+
+-(NSArray<TSHEVCVideoDescriptor*>*)hevcVideoDescriptors
+{
+    NSMutableArray *result = [NSMutableArray array];
+    for (TSDescriptor *d in self.descriptors) {
+        if ([d isKindOfClass:[TSHEVCVideoDescriptor class]]) {
+            [result addObject:d];
+        }
+    }
+    return result;
+}
+
+-(NSArray<TSScte35CueIdentifierDescriptor*>*)scte35CueIdentifierDescriptors
+{
+    NSMutableArray *result = [NSMutableArray array];
+    for (TSDescriptor *d in self.descriptors) {
+        if ([d isKindOfClass:[TSScte35CueIdentifierDescriptor class]]) {
+            [result addObject:d];
+        }
+    }
+    return result;
+}
 
 @end
