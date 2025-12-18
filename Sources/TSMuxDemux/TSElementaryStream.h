@@ -9,6 +9,10 @@
 #import <Foundation/Foundation.h>
 #import "TSAccessUnit.h"
 @class TSDescriptor;
+@class TSRegistrationDescriptor;
+@class TSISO639LanguageDescriptor;
+@class TSHEVCVideoDescriptor;
+@class TSScte35CueIdentifierDescriptor;
 
 @interface TSElementaryStream: NSObject
 
@@ -28,6 +32,20 @@
 -(TSResolvedStreamType)resolvedStreamType;
 -(BOOL)isAudio;
 -(BOOL)isVideo;
+
+#pragma mark - Util - Implemented/Parsed Descriptor Accessors
+
+/// Returns all registration descriptors (tag 0x05) from this stream's descriptor loop.
+-(NSArray<TSRegistrationDescriptor*>* _Nonnull)registrationDescriptors;
+
+/// Returns all ISO 639 language descriptors (tag 0x0A) from this stream's descriptor loop.
+-(NSArray<TSISO639LanguageDescriptor*>* _Nonnull)languageDescriptors;
+
+/// Returns all HEVC video descriptors (tag 0x38) from this stream's descriptor loop.
+-(NSArray<TSHEVCVideoDescriptor*>* _Nonnull)hevcVideoDescriptors;
+
+/// Returns all SCTE-35 cue identifier descriptors (tag 0x8A) from this stream's descriptor loop.
+-(NSArray<TSScte35CueIdentifierDescriptor*>* _Nonnull)scte35CueIdentifierDescriptors;
 
 @end
 
