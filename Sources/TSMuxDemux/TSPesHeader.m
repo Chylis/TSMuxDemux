@@ -12,12 +12,32 @@
 
 static const uint8_t TIMESTAMP_LENGTH = 5;
 
+/// Returns YES for stream_ids that have no optional PES header (payload starts at byte 6).
+/// See ITU-T H.222.0 Table 2-18 "Stream_id assignments".
+static inline BOOL streamIdHasNoOptionalHeader(uint8_t streamId) {
+    switch (streamId) {
+        case 0xBC: // program_stream_map
+        case 0xBE: // padding_stream
+        case 0xBF: // private_stream_2
+        case 0xF0: // ECM_stream
+        case 0xF1: // EMM_stream
+        case 0xF2: // DSMCC_stream
+        case 0xF8: // ITU-T Rec. H.222.1 type E stream
+        case 0xFF: // program_stream_directory
+            return YES;
+        default:
+            return NO;
+    }
+}
+
 @implementation TSPesHeader
 
 + (instancetype _Nullable)parseFromPacket:(TSPacket * _Nonnull)packet
 {
     NSData *payload = packet.payload;
-    if (payload.length < 9) {
+
+    // Minimum PES header: start code (3) + stream_id (1) + length (2) = 6 bytes
+    if (payload.length < 6) {
         return nil;
     }
 
@@ -28,15 +48,29 @@ static const uint8_t TIMESTAMP_LENGTH = 5;
         return nil;
     }
 
-    // TODO: Certain stream_ids (byte 3) have no optional PES header - payload starts at byte 6:
-    // 0xBC (program_stream_map), 0xBE (padding), 0xBF (private_stream_2),
-    // 0xF0/0xF1 (ECM/EMM), 0xF2 (DSMCC), 0xF8 (H.222.1 type E), 0xFF (program_stream_directory).
-    // These are rare in TS elementary streams so we parse as normal PES for now.
-
     // Bytes 4-5: PES packet length (0 = unbounded, common for video)
     uint16_t pesPacketLength = 0;
     [payload getBytes:&pesPacketLength range:NSMakeRange(4, 2)];
     pesPacketLength = CFSwapInt16BigToHost(pesPacketLength);
+
+    // Check stream_id for alternate PES format (no optional header, payload at byte 6)
+    uint8_t streamId = 0;
+    [payload getBytes:&streamId range:NSMakeRange(3, 1)];
+
+    if (streamIdHasNoOptionalHeader(streamId)) {
+        TSPesHeader *header = [[TSPesHeader alloc] init];
+        header->_pts = kCMTimeInvalid;
+        header->_dts = kCMTimeInvalid;
+        header->_isDiscontinuous = packet.adaptationField.discontinuityFlag;
+        header->_payloadOffset = 6;
+        header->_pesPacketLength = pesPacketLength;
+        return header;
+    }
+
+    // Normal PES format requires at least 9 bytes (6 + flags1 + flags2 + header_data_length)
+    if (payload.length < 9) {
+        return nil;
+    }
 
     uint8_t byte8 = 0x00;
     [payload getBytes:&byte8 range:NSMakeRange(7, 1)];
