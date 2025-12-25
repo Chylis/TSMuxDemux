@@ -46,7 +46,7 @@ typedef NS_ENUM(uint8_t, TSAdaptationMode) {
                        continuityCounter:(uint8_t)continuityCounter;
 
 // Returns the byte representation of the TSPacketHeader.
-//-(NSData* _Nonnull)getBytes;
+-(NSData* _Nonnull)getBytes;
 
 @end
 
@@ -105,8 +105,14 @@ typedef void (^OnTsPacketDataCallback)(NSData * _Nonnull);
 // Does not copy the data.
 @property(nonatomic, nullable, readonly) NSData *payload;
 
-/// Creates TSPackets from the received raw ts packet data - doesn't own the memory, chunk does
-+(NSArray<TSPacket*>* _Nonnull)packetsFromChunkedTsData:(NSData* _Nonnull)chunk;
+/// Creates TSPackets from the received raw ts packet data.
+/// For 204-byte packets, the 16-byte RS parity suffix is stripped from each packet.
+///
+/// @warning Memory ownership: The returned TSPacket objects reference memory owned by `chunk`.
+/// Callers must ensure `chunk` remains valid for the lifetime of the returned packets.
+/// If packets need to outlive `chunk`, copy the payload data explicitly.
++(NSArray<TSPacket*>* _Nonnull)packetsFromChunkedTsData:(NSData* _Nonnull)chunk
+                                             packetSize:(NSUInteger)packetSize;
 
 /// Packetizes the received payload in N 188-byte long raw ts-data chunks and passes each chunk individually to the callback.
 +(void)packetizePayload:(NSData* _Nonnull)payload

@@ -51,7 +51,10 @@
 
 -(void)addTsPacket:(TSPacket* _Nonnull)tsPacket
 {
-    NSAssert(tsPacket.header.pid == self.pid, @"PID mismatch");
+    if (tsPacket.header.pid != self.pid) {
+        NSLog(@"TSPsiTableBuilder: PID mismatch (got %u, expected %u)", tsPacket.header.pid, self.pid);
+        return;
+    }
     BOOL isDuplicateCC = _hasLastCC && tsPacket.header.continuityCounter == _lastContinuityCounter;
 
     _hasLastCC = YES;

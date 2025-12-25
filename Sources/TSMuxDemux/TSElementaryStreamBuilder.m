@@ -53,7 +53,10 @@
 
 -(void)addTsPacket:(TSPacket* _Nonnull)tsPacket
 {
-    NSAssert(tsPacket.header.pid == self.pid, @"PID mismatch");
+    if (tsPacket.header.pid != self.pid) {
+        NSLog(@"TSElementaryStreamBuilder: PID mismatch (got %u, expected %u)", tsPacket.header.pid, self.pid);
+        return;
+    }
     //NSLog(@"pid: %u, CC '%u', adaptation: %u", self.pid, tsPacket.header.continuityCounter, tsPacket.header.adaptationMode);
 
     BOOL isDuplicateCC = _hasLastCC &&

@@ -75,6 +75,8 @@
 
 @property(nonatomic, weak, nullable) id<TSDemuxerDelegate> delegate;
 @property(nonatomic, readonly) TSDemuxerMode mode;
+/// Auto-detected packet size (188 or 204). Returns 0 until detection completes.
+@property(nonatomic, readonly) NSUInteger packetSize;
 
 @property(nonatomic, readonly, nullable) TSProgramAssociationTable *pat;
 @property(nonatomic, readonly, nonnull) NSDictionary<ProgramNumber,TSProgramMapTable*> *pmts;

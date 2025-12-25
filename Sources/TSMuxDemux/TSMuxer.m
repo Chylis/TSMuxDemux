@@ -235,7 +235,7 @@
     if (self.pcrPid != accessUnit.pid) {
         return 0;
     }
-    static const NSUInteger pcrIntervalSeconds = 0.04;
+    static const double pcrIntervalSeconds = 0.04;
     
     const BOOL hasSentPcr = CMTIME_IS_VALID(self.firstSentPcr);
     const Float64 secondsElapsedSinceLastPcr = CMTimeGetSeconds(accessUnit.pts) - CMTimeGetSeconds(self.lastSentPcr);

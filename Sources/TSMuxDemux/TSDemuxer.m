@@ -59,6 +59,9 @@
 {
     NSMutableDictionary<ProgramNumber,TSProgramMapTable*> *_pmts;
     NSDictionary<NSNumber*, TSProgramMapTable*> *_cachedPmtsByPid;
+
+    // Packet format auto-detection (0 = not yet detected)
+    NSUInteger _packetSize;
 }
 
 -(instancetype)initWithDelegate:(id<TSDemuxerDelegate>)delegate mode:(TSDemuxerMode)mode
@@ -190,10 +193,30 @@
     return _cachedPmtsByPid;
 }
 
+-(NSUInteger)packetSize
+{
+    return _packetSize;
+}
+
+/// Detects packet size using buffer length modulo arithmetic.
+/// Assumes input is packet-aligned (starts at packet boundary).
+/// BTS (204-byte) is detected only when unambiguous: divisible by 204 but not by 188.
+/// When ambiguous (divisible by both), defaults to standard 188-byte TS packets.
+-(NSUInteger)detectPacketSizeFromLength:(NSUInteger)length
+{
+    BOOL isBts = (length % TS_PACKET_SIZE_204 == 0) && (length % TS_PACKET_SIZE_188 != 0);
+    return isBts ? TS_PACKET_SIZE_204 : TS_PACKET_SIZE_188;
+}
 
 -(void)demux:(NSData* _Nonnull)chunk dataArrivalHostTimeNanos:(uint64_t)dataArrivalHostTimeNanos
 {
-    NSArray<TSPacket*> *tsPackets = [TSPacket packetsFromChunkedTsData:chunk];
+    // Auto-detect packet size on first call
+    if (_packetSize == 0) {
+        _packetSize = [self detectPacketSizeFromLength:chunk.length];
+        NSLog(@"TSDemuxer: Detected %lu-byte TS packets", (unsigned long)_packetSize);
+    }
+
+    NSArray<TSPacket*> *tsPackets = [TSPacket packetsFromChunkedTsData:chunk packetSize:_packetSize];
     for (TSPacket *tsPacket in tsPackets) {
         BOOL isPes = NO;
 

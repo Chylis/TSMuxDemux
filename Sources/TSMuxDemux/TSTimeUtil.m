@@ -33,9 +33,6 @@ static const uint64_t ONE_SECOND_NANOS = 1000000000;
     self = [super init];
     if (self) {
         mach_timebase_info(&machTimebaseInfo);
-        if (mach_timebase_info(&machTimebaseInfo) != KERN_SUCCESS) {
-            NSAssert(NO, @"Warning: Failed to fetch mach_timebase_info");
-        }
     }
     return self;
 }

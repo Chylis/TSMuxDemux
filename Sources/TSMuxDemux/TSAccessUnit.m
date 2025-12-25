@@ -143,7 +143,6 @@ static const uint8_t TIMESTAMP_LENGTH = 5; // A timestamp (pts/dts) is a 33-bit 
     // Construct packet (i.e. header + payload)
     NSMutableData *packet = [NSMutableData dataWithData:header];
     [packet appendData:self.compressedData];
-    //NSAssert(packet.length <= 65536, @"PES packet exceeds max size"); //FIXME MG: <-- This was triggered on iPad
     return packet;
 }
 

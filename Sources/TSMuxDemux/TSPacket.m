@@ -140,8 +140,6 @@
                                       pcrExt:(uint16_t)pcrExt
                         numberOfStuffedBytes:(NSUInteger)numberOfStuffedBytes
 {
-    NSAssert(adaptationFieldLength <= 183, @"Max adaptation field length exceeded");
-
     self = [super init];
     if (self) {
         _adaptationFieldLength = adaptationFieldLength;
@@ -177,22 +175,13 @@
         adaptationFieldTotalSize = 1;
     } else {
         const NSUInteger adaptationHeaderSize = 1 + 1 + (hasPcr ? 6 : 0);
-        const NSUInteger remainingPacketSpace = TS_PACKET_SIZE - TS_PACKET_HEADER_SIZE - adaptationHeaderSize;
+        const NSUInteger remainingPacketSpace = TS_PACKET_SIZE_188 - TS_PACKET_HEADER_SIZE - adaptationHeaderSize;
         const NSUInteger packetPayloadSize = MIN(remainingPacketSpace, remainingPayloadSize);
         numberOfBytesToStuff = remainingPacketSpace - packetPayloadSize;
         adaptationFieldTotalSize = adaptationHeaderSize + numberOfBytesToStuff;
     }
     
     const uint8_t adaptationFieldLength = adaptationFieldTotalSize - 1;
-    const BOOL hasPayload = remainingPayloadSize > 0;
-    if (hasPayload) {
-        // When the adaptation_field_control value is '11 - both', the value of the adaptation_field_length shall be in the range 0 to 182.
-        NSAssert(adaptationFieldLength <= 182, @"Invalid adaptation field length, expected 0...182");
-    } else {
-        // When the adaptation_field_control value is '10 - adaptation only', the value of the adaptation_field_length shall be 183.
-        NSAssert(adaptationFieldLength == 183, @"Invalid adaptation field length, expected 183");
-    }
-    
     return [[TSAdaptationField alloc] initWithAdaptationFieldLength:adaptationFieldLength
                                                   discontinuityFlag:NO
                                                    randomAccessFlag:NO
@@ -328,10 +317,6 @@
             [data appendBytes:&stuffing length:1];
         }
     }
-    
-    
-    NSString *msg = [NSString stringWithFormat:@"%lu != %d: data: %lu adap len: %d, stuff: %lu, pcr: %hu", (unsigned long)data.length, self.adaptationFieldLength + 1, (unsigned long)data.length, self.adaptationFieldLength, (unsigned long)self.numberOfStuffedBytes, hasPcr];
-    NSAssert(data.length == self.adaptationFieldLength + 1, msg);
 
     return data;
 }
@@ -360,7 +345,7 @@
     + self.adaptationField.adaptationFieldLength
     + self.payload.length;
     
-    if (size != TS_PACKET_SIZE) {
+    if (size != TS_PACKET_SIZE_188) {
         NSLog(@"TSPacket: Invalid packet size: %lu", (unsigned long)size);
         return nil;
     }
@@ -369,48 +354,59 @@
 }
 
 +(NSArray<TSPacket*>*)packetsFromChunkedTsData:(NSData* _Nonnull)chunk
+                                    packetSize:(NSUInteger)packetSize
 {
-    NSAssert(chunk.length % TS_PACKET_SIZE == 0, @"Received non-integer number of ts packets: %lu", (unsigned long)chunk.length);
-    
-    NSUInteger numberOfPackets = chunk.length / TS_PACKET_SIZE;
+    if (packetSize != TS_PACKET_SIZE_188 && packetSize != TS_PACKET_SIZE_204) {
+        NSLog(@"Invalid packet size: %lu (expected %u or %u)",
+              (unsigned long)packetSize, TS_PACKET_SIZE_188, TS_PACKET_SIZE_204);
+        return @[];
+    }
+    if (chunk.length % packetSize != 0) {
+        NSLog(@"Received non-integer number of ts packets: %lu (expected multiple of %lu)",
+              (unsigned long)chunk.length, (unsigned long)packetSize);
+        return @[];
+    }
+
+    NSUInteger numberOfPackets = chunk.length / packetSize;
     NSMutableArray *packets = [NSMutableArray arrayWithCapacity:numberOfPackets];
-    for (int i = 0; i < numberOfPackets; ++i) {
-        NSData *tsPacketData = [NSData dataWithBytesNoCopy:(void*)chunk.bytes + (i * TS_PACKET_SIZE)
-                                                    length:TS_PACKET_SIZE
+    for (NSUInteger i = 0; i < numberOfPackets; ++i) {
+        // Stride by packetSize but only read 188 bytes (RS parity at bytes 188-203 is ignored)
+        NSData *tsPacketData = [NSData dataWithBytesNoCopy:(void*)chunk.bytes + (i * packetSize)
+                                                    length:TS_PACKET_SIZE_188
                                               freeWhenDone:NO];
         const TSPacketHeader *header = [TSPacketHeader initWithTsPacketData:tsPacketData];
         if (!header) {
             return nil;
         }
-        
+
         TSAdaptationField *adaptationField = nil;
         NSData *payload = nil;
-        
+
         const BOOL hasAdaptationField =
         header.adaptationMode == TSAdaptationModeAdaptationOnly
         || header.adaptationMode == TSAdaptationModeAdaptationAndPayload;
         if (hasAdaptationField) {
             adaptationField = [TSAdaptationField initWithTsPacketData:tsPacketData];
         }
-        
+
         const BOOL hasPayload = header.adaptationMode != TSAdaptationModeAdaptationOnly;
         if (hasPayload) {
             const NSUInteger payloadOffset =
             TS_PACKET_HEADER_SIZE
             + (hasAdaptationField ? 1 : 0) // + 1 for the first byte of the adaptation header itself
             + (adaptationField.adaptationFieldLength ?: 0);
-            const NSUInteger payloadLength = TS_PACKET_SIZE - payloadOffset;
+            const NSUInteger payloadLength = TS_PACKET_SIZE_188 - payloadOffset;
             payload = [NSData dataWithBytesNoCopy:(void*)tsPacketData.bytes + payloadOffset
                                            length:payloadLength
                                      freeWhenDone:NO];
         }
-        
+
         TSPacket *packet = [[TSPacket alloc] initWithHeader:(TSPacketHeader* _Nonnull)header
                                             adaptationField:adaptationField
                                                     payload:payload];
         [packets addObject:packet];
     }
-    
+
     return packets;
 }
 
@@ -427,15 +423,15 @@
     while (remainingPayloadLength > 0) {
         const BOOL isFirstPacket = packetNumber == 0;
         const BOOL shouldSendPcr = hasPcr && isFirstPacket;
-        const BOOL needsStuffing = remainingPayloadLength < (TS_PACKET_SIZE - TS_PACKET_HEADER_SIZE);
+        const BOOL needsStuffing = remainingPayloadLength < (TS_PACKET_SIZE_188 - TS_PACKET_HEADER_SIZE);
         BOOL shouldIncludeAdaptationField = shouldSendPcr || needsStuffing;
-        
+
         NSData *adaptationField = shouldIncludeAdaptationField ? [[TSAdaptationField initWithPcrBase:pcrBase
                                                                                               pcrExt:pcrExt
                                                                                 remainingPayloadSize:remainingPayloadLength]
                                                                   getBytes] : nil;
-        
-        const NSUInteger remainingSpaceInPacket = TS_PACKET_SIZE - TS_PACKET_HEADER_SIZE - adaptationField.length;
+
+        const NSUInteger remainingSpaceInPacket = TS_PACKET_SIZE_188 - TS_PACKET_HEADER_SIZE - adaptationField.length;
         const NSUInteger packetPayloadSize = MIN(remainingSpaceInPacket, remainingPayloadLength);
         const NSUInteger payloadOffset = payload.length - remainingPayloadLength;
         
@@ -453,16 +449,12 @@
         }
         
         
-        NSMutableData *tsPacket = [NSMutableData dataWithCapacity:TS_PACKET_SIZE];
+        NSMutableData *tsPacket = [NSMutableData dataWithCapacity:TS_PACKET_SIZE_188];
         [tsPacket appendData:header.getBytes];
         if (adaptationField) {
             [tsPacket appendData:adaptationField];
         }
         [tsPacket appendBytes:(void*)payload.bytes + payloadOffset length:packetPayloadSize];
-        if (tsPacket.length != TS_PACKET_SIZE) {
-            NSString *msg = [NSString stringWithFormat:@"Invalid TS-packet size: %lu", (unsigned long)tsPacket.length];
-            NSAssert(NO, msg);
-        }
         onTsPacketCb(tsPacket);
 
         remainingPayloadLength -= packetPayloadSize;
