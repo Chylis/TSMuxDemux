@@ -9,7 +9,6 @@
 #import <Foundation/Foundation.h>
 #import <CoreMedia/CoreMedia.h>
 #import "TSStreamType.h"
-@class TSPacket;
 @class TSDescriptor;
 
 /// See "Rec. ITU-T H.222.0 (03/2017)"
@@ -40,13 +39,6 @@
                          streamType:(uint8_t)streamType
                          descriptors:(NSArray<TSDescriptor*>* _Nullable)descriptors
                      compressedData:(NSData* _Nonnull)compressedData;
-
-/// Creates a PES-packet from the received ts packet.
-+(instancetype _Nullable)initWithTsPacket:(TSPacket* _Nonnull)packet
-                                      pid:(uint16_t)pid
-                               streamType:(uint8_t)streamType
-                              descriptors:(NSArray<TSDescriptor*>* _Nullable)descriptors;
-
 
 /// Creates a PES-packet from the access unit.
 /// Converts the pts and dts to the MPEG-TS timescale.

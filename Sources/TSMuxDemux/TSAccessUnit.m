@@ -7,7 +7,6 @@
 //
 
 #import "TSAccessUnit.h"
-#import "TSPacket.h"
 #import "TSConstants.h"
 #import "TSTimeUtil.h"
 
@@ -36,71 +35,6 @@ static const uint8_t TIMESTAMP_LENGTH = 5; // A timestamp (pts/dts) is a 33-bit 
         _compressedData = compressedData;
     }
     return self;
-}
-
-+(instancetype _Nullable)initWithTsPacket:(TSPacket* _Nonnull)packet
-                                      pid:(uint16_t)pid
-                               streamType:(uint8_t)streamType
-                              descriptors:(NSArray<TSDescriptor *> * _Nullable)descriptors
-{
-
-    uint32_t bytes1To4 = 0x00;
-    [packet.payload getBytes:&bytes1To4 range:NSMakeRange(0, 4)];
-    const uint8_t streamId = CFSwapInt32BigToHost(bytes1To4) & (uint32_t)0xFF;
-    const uint32_t startCode = (CFSwapInt32BigToHost(bytes1To4) & 0xFFFFFF00) >> 8;
-    // FIXME MG: NSAssert(startCode == 0x01, @"Invalid PES header startcode");
-
-    //    uint16_t bytes5And6 = 0x00;
-    //    [packet.payload getBytes:&bytes5And6 range:NSMakeRange(4, 2)];
-    //    const uint16_t pesPacketLength = CFSwapInt16BigToHost(bytes5And6);
-
-    // TODO: Parse byte7/flags1 and add properties accordingly
-
-    uint8_t byte8 = 0x00;
-    [packet.payload getBytes:&byte8 range:NSMakeRange(7, 1)];
-    const BOOL hasPts = (byte8 & 0x80) != 0x00;
-    const BOOL hasDts = (byte8 & 0x40) != 0x00;
-
-    uint8_t byte9 = 0x00;
-    [packet.payload getBytes:&byte9 range:NSMakeRange(8, 1)];
-    // The number of bytes of optional header data present in the header before the first byte of the PES-packet payload is reached.
-    const uint8_t pesHeaderDataLength = byte9;
-
-    uint64_t pts = 0x0;
-    uint64_t dts = 0x0;
-    if (hasPts) {
-        uint8_t ptsBytes[5];
-        [packet.payload getBytes:ptsBytes range:NSMakeRange(9, TIMESTAMP_LENGTH)];
-        uint64_t ptsBits32To30 = (ptsBytes[0] >> 1) & 0x7;
-        uint64_t ptsBits29To22 = ptsBytes[1];
-        uint64_t ptsBits22To15 = (ptsBytes[2] >> 1) & 0x7F;
-        uint64_t ptsBits14To7 = ptsBytes[3];
-        uint64_t ptsBits7To0 = (ptsBytes[4] >> 1) & 0x7F;
-        pts = (ptsBits32To30 << 30) | (ptsBits29To22 << 22) | (ptsBits22To15 << 15) | (ptsBits14To7 << 7) | ptsBits7To0;
-
-        if (hasDts) {
-            uint8_t dtsBytes[5];
-            [packet.payload getBytes:dtsBytes range:NSMakeRange(9+TIMESTAMP_LENGTH, TIMESTAMP_LENGTH)];
-            uint64_t dtsBits32To30 = (dtsBytes[0] >> 1) & 0x7;
-            uint64_t dtsBits29To22 = dtsBytes[1];
-            uint64_t dtsBits22To15 = (dtsBytes[2] >> 1) & 0x7f;
-            uint64_t dtsBits14To7 = dtsBytes[3];
-            uint64_t dtsBits7To0 = (dtsBytes[4] >> 1) & 0x7f;
-            dts = (dtsBits32To30 << 30) | (dtsBits29To22 << 22) | (dtsBits22To15 << 15) | (dtsBits14To7 << 7) | dtsBits7To0;
-        }
-    }
-
-    const NSUInteger payloadOffset = 9 + pesHeaderDataLength;
-    const NSUInteger payloadSize = packet.payload.length - payloadOffset;
-    NSData *data = [packet.payload subdataWithRange:NSMakeRange(payloadOffset, payloadSize)];
-
-    return [[TSAccessUnit alloc] initWithPid:pid
-                                         pts:pts == 0 ? kCMTimeInvalid : CMTimeMake(pts, TS_TIMESTAMP_TIMESCALE)
-                                         dts:dts == 0 ? kCMTimeInvalid : CMTimeMake(dts, TS_TIMESTAMP_TIMESCALE)
-                             isDiscontinuous:packet.adaptationField.discontinuityFlag
-                                  streamType:streamType
-                                 descriptors:descriptors
-                              compressedData:data];
 }
 
 -(NSData* _Nonnull)toTsPacketPayload

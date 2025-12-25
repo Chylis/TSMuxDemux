@@ -8,6 +8,8 @@
 
 #import "TSElementaryStreamBuilder.h"
 #import "TSPacket.h"
+#import "TSPesHeader.h"
+#import "TSStreamType.h"
 #import <CoreMedia/CoreMedia.h>
 
 @interface TSElementaryStreamBuilder()
@@ -16,6 +18,8 @@
 @property(nonatomic) CMTime dts;
 @property(nonatomic) BOOL isDiscontinuous;
 @property(nonatomic, strong) NSMutableData *collectedData;
+@property(nonatomic) TSResolvedStreamType resolvedStreamType;
+@property(nonatomic) BOOL isVideo;
 
 @end
 
@@ -39,6 +43,8 @@
         _collectedData = nil;
         _hasLastCC = NO;
         _lastContinuityCounter = 0;
+        _resolvedStreamType = [TSStreamType resolveStreamType:streamType descriptors:descriptors];
+        _isVideo = [TSStreamType isVideo:_resolvedStreamType];
     }
     return self;
 }
@@ -63,11 +69,13 @@
     }
 
     if (tsPacket.header.payloadUnitStartIndicator) {
-        // New PES packet starting - parse its header first to get PTS
-        TSAccessUnit *newPesAccessUnit = [TSAccessUnit initWithTsPacket:tsPacket
-                                                                    pid:self.pid
-                                                             streamType:self.streamType
-                                                            descriptors:self.descriptors];
+        // New PES packet starting - parse header only (no data copy)
+        TSPesHeader *pesHeader = [TSPesHeader parseFromPacket:tsPacket];
+        if (!pesHeader) {
+            return;
+        }
+
+        const NSUInteger payloadLength = tsPacket.payload.length - pesHeader.payloadOffset;
 
         // Check if this PES packet belongs to the same access unit (same PTS).
         // This handles interlaced video where top and bottom fields are sent in separate
@@ -76,19 +84,15 @@
         // By aggregating PES packets with matching PTS, we ensure the decoder receives
         // complete frames/field-pairs rather than incomplete data.
         BOOL isSameAccessUnit = NO;
-        if (self.collectedData.length > 0 && CMTIME_IS_VALID(self.pts) && CMTIME_IS_VALID(newPesAccessUnit.pts)) {
-            isSameAccessUnit = CMTimeCompare(self.pts, newPesAccessUnit.pts) == 0;
+        if (self.collectedData.length > 0 && CMTIME_IS_VALID(self.pts) && CMTIME_IS_VALID(pesHeader.pts)) {
+            isSameAccessUnit = CMTimeCompare(self.pts, pesHeader.pts) == 0;
         }
 
         if (isSameAccessUnit) {
             // Same PTS - this is a continuation of the same frame (e.g., another slice)
-            // Append the data without delivering the previous access unit
-            //NSLog(@"[TSESBuilder] pid=%u: Aggregating PES into same access unit (PTS=%.3f) - collected %lu + %lu bytes",
-            //      self.pid,
-            //      CMTimeGetSeconds(self.pts),
-            //      (unsigned long)self.collectedData.length,
-            //      (unsigned long)newPesAccessUnit.compressedData.length);
-            [self.collectedData appendData:newPesAccessUnit.compressedData];
+            // Append directly to accumulator - single copy
+            [self.collectedData appendBytes:tsPacket.payload.bytes + pesHeader.payloadOffset
+                                     length:payloadLength];
             // Preserve the original DTS and discontinuity flag from the first PES
         } else {
             // Different PTS - deliver the previous access unit if we have one
@@ -104,11 +108,33 @@
                 self.collectedData = nil;
             }
 
-            // Start collecting the new access unit
-            self.pts = newPesAccessUnit.pts;
-            self.dts = newPesAccessUnit.dts;
-            self.isDiscontinuous = newPesAccessUnit.isDiscontinuous;
-            self.collectedData = [NSMutableData dataWithData:newPesAccessUnit.compressedData];
+            // Start collecting the new access unit - single copy directly to accumulator
+            self.pts = pesHeader.pts;
+            self.dts = pesHeader.dts;
+            self.isDiscontinuous = pesHeader.isDiscontinuous;
+
+            // Estimate capacity to minimize reallocations during accumulation
+            NSUInteger capacity;
+            if (pesHeader.pesPacketLength != 0) {
+                // pesPacketLength (num bytes remaining after the pesPacketLength field) is known - use it
+                // (including optional PES header field - slight over-allocation is fine).
+                capacity = pesHeader.pesPacketLength;
+            } else if (self.isVideo) {
+                // Unbounded PES (length=0) is common for video.
+                // HEVC uses larger CTUs (up to 64x64) vs H.264's 16x16 macroblocks,
+                // and more complex prediction modes, resulting in larger frame sizes.
+                capacity = (self.resolvedStreamType == TSResolvedStreamTypeH265)
+                ? 128 * 1024
+                : 64 * 1024;
+            } else {
+                // Audio frames are typically small (AAC ~1KB, AC-3 ~2KB per frame).
+                // Use 8KB to account for multiple audio frames per PES.
+                capacity = 8 * 1024;
+            }
+
+            self.collectedData = [NSMutableData dataWithCapacity:capacity];
+            [self.collectedData appendBytes:tsPacket.payload.bytes + pesHeader.payloadOffset
+                                     length:payloadLength];
         }
     } else {
         // Continuation of PES packet
@@ -116,10 +142,10 @@
             //NSLog(@"TSESStreamBuilder: Waiting for PUSI=true for pid %u - discarding", self.pid);
             return;
         }
-        // Here we assume the entire payload is part of the PES continuation.
-        // If there's any risk of extra stuffing, we might need to compute the expected length.
+        // Entire payload is PES continuation data - append directly
         if (tsPacket.payload.length > 0) {
-            [self.collectedData appendData:tsPacket.payload];
+            [self.collectedData appendBytes:tsPacket.payload.bytes
+                                     length:tsPacket.payload.length];
         }
     }
 }
