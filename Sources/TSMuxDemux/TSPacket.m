@@ -266,8 +266,14 @@
         // TODO: Parse adaptation_field_extension if adaptationFieldExtensionFlag
     }
     
-    // FIXME MG: Read a correct value here after parsing adaptationFieldLength
-    const NSUInteger dummyNumberOfStuffedBytes = adaptationFieldLength - 1;
+    // Calculate stuffing bytes: adaptationFieldLength minus flags byte and parsed optional fields
+    NSUInteger numberOfStuffedBytes = 0;
+    if (adaptationFieldLength > 0) {
+        NSUInteger usedBytes = 1; // flags byte
+        if (pcrFlag) usedBytes += 6;
+        // TODO: Add OPCR (6), splice_countdown (1), private_data, extension when parsed
+        numberOfStuffedBytes = (adaptationFieldLength > usedBytes) ? (adaptationFieldLength - usedBytes) : 0;
+    }
     TSAdaptationField *adaptationField = [[TSAdaptationField alloc] initWithAdaptationFieldLength:adaptationFieldLength
                                                                                 discontinuityFlag:discontinuityFlag
                                                                                  randomAccessFlag:randomAccessIndicator
@@ -279,7 +285,7 @@
                                                                      adaptationFieldExtensionFlag:adaptationFieldExtensionFlag
                                                                                           pcrBase:pcrBase
                                                                                            pcrExt:pcrExt
-                                                                             numberOfStuffedBytes:dummyNumberOfStuffedBytes];
+                                                                             numberOfStuffedBytes:numberOfStuffedBytes];
     
     return adaptationField;
 }
