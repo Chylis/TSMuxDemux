@@ -212,9 +212,9 @@
     BOOL splicingPointFlag = NO;
     BOOL transportPrivateDataFlag = NO;
     BOOL adaptationFieldExtensionFlag = NO;
-    const uint64_t pcrBase = 0;
-    const uint16_t pcrExt = 0;
-    
+    uint64_t pcrBase = 0;
+    uint16_t pcrExt = 0;
+
     if (adaptationFieldLength > 0) {
         // byte 2:
         // bit 1:               discontinuity_indicator
@@ -228,7 +228,7 @@
         uint8_t byte2 = 0x00;
         [tsPacketData getBytes:&byte2 range:NSMakeRange(offset, 1)];
         offset +=1;
-        
+
         discontinuityFlag = (byte2 & 0x80) != 0x00;
         randomAccessIndicator = (byte2 & 0x40) != 0x00;
         esPriorityIndicator = (byte2 & 0x20) != 0x00;
@@ -237,23 +237,33 @@
         splicingPointFlag = (byte2 & 0x4) != 0x00;
         transportPrivateDataFlag = (byte2 & 0x2) != 0x00;
         adaptationFieldExtensionFlag = (byte2 & 0x1) != 0x00;
-        
-        /*
-        if (pcrFlag) {
-            // TODO: Parse pcrBase + pcrExtension
+
+        // Parse PCR (6 bytes) if present
+        // PCR is 48 bits: 33-bit base + 6 reserved + 9-bit extension
+        if (pcrFlag && offset + 6 <= tsPacketData.length) {
+            uint8_t pcr[6];
+            [tsPacketData getBytes:pcr range:NSMakeRange(offset, 6)];
+            offset += 6;
+
+            // Decode PCR base (33 bits) and extension (9 bits)
+            // byte 0: bits 32-25 of base
+            // byte 1: bits 24-17 of base
+            // byte 2: bits 16-9 of base
+            // byte 3: bits 8-1 of base
+            // byte 4: bit 7 = bit 0 of base, bits 6-1 = reserved, bit 0 = bit 8 of ext
+            // byte 5: bits 7-0 of ext
+            pcrBase = ((uint64_t)pcr[0] << 25) |
+                      ((uint64_t)pcr[1] << 17) |
+                      ((uint64_t)pcr[2] << 9) |
+                      ((uint64_t)pcr[3] << 1) |
+                      ((pcr[4] >> 7) & 0x01);
+            pcrExt = ((uint16_t)(pcr[4] & 0x01) << 8) | pcr[5];
         }
-        if (oPcrFlag) {
-            // TODO: Parse remaining fields...
-        }
-        if (splicingPointFlag) {
-            // TODO: Parse remaining fields...
-        }
-        if (transportPrivateDataFlag) {
-            // TODO: Parse remaining fields...
-        }
-        if (adaptationFieldExtensionFlag) {
-            // TODO: Parse remaining fields...
-        } */
+
+        // TODO: Parse OPCR (6 bytes) if oPcrFlag
+        // TODO: Parse splice_countdown (1 byte) if splicingPointFlag
+        // TODO: Parse transport_private_data if transportPrivateDataFlag
+        // TODO: Parse adaptation_field_extension if adaptationFieldExtensionFlag
     }
     
     // FIXME MG: Read a correct value here after parsing adaptationFieldLength
