@@ -6,6 +6,7 @@
 //
 
 #import <XCTest/XCTest.h>
+#import "../TSTestUtils.h"
 @import TSMuxDemux;
 
 @interface TSPsiTableBuilderTests : XCTestCase <TSPsiTableBuilderDelegate>
@@ -25,91 +26,6 @@
     [self.receivedTables addObject:table];
 }
 
-#pragma mark - Helper Methods
-
-/// Creates a TS packet containing a complete PSI section.
-/// sectionData layout (after section_length):
-///   Bytes 0-1: tableIdExtension
-///   Byte 2: reserved + versionNumber + currentNextIndicator
-///   Byte 3: sectionNumber
-///   Byte 4: lastSectionNumber
-///   Bytes 5+: payload
-- (TSPacket *)createPsiPacketWithPid:(uint16_t)pid
-                             tableId:(uint8_t)tableId
-                    tableIdExtension:(uint16_t)tableIdExtension
-                       versionNumber:(uint8_t)versionNumber
-                       sectionNumber:(uint8_t)sectionNumber
-                   lastSectionNumber:(uint8_t)lastSectionNumber
-                             payload:(NSData *)payload
-                  continuityCounter:(uint8_t)cc {
-    // Build raw 188-byte TS packet
-    NSMutableData *packet = [NSMutableData dataWithLength:TS_PACKET_SIZE_188];
-    uint8_t *bytes = packet.mutableBytes;
-
-    // TS Header (4 bytes)
-    bytes[0] = TS_PACKET_HEADER_SYNC_BYTE;                    // Sync byte 0x47
-    bytes[1] = 0x40 | ((pid >> 8) & 0x1F);                    // PUSI=1, PID high bits
-    bytes[2] = pid & 0xFF;                                     // PID low bits
-    bytes[3] = 0x10 | (cc & 0x0F);                            // Payload only, CC
-
-    // TS Payload starts at byte 4
-    NSUInteger offset = 4;
-
-    // Pointer field (1 byte) - 0 means section starts immediately after
-    bytes[offset++] = 0x00;
-
-    // PSI Section Header
-    bytes[offset++] = tableId;                                 // Table ID
-
-    // Build section data to calculate section_length
-    NSMutableData *sectionData = [NSMutableData data];
-
-    // Table ID extension (2 bytes)
-    uint16_t tidExt = CFSwapInt16HostToBig(tableIdExtension);
-    [sectionData appendBytes:&tidExt length:2];
-
-    // Reserved + version + current_next (1 byte): 11vvvvvc
-    uint8_t versionByte = 0xC0 | ((versionNumber & 0x1F) << 1) | 0x01;
-    [sectionData appendBytes:&versionByte length:1];
-
-    // Section number
-    [sectionData appendBytes:&sectionNumber length:1];
-
-    // Last section number
-    [sectionData appendBytes:&lastSectionNumber length:1];
-
-    // Payload
-    if (payload) {
-        [sectionData appendData:payload];
-    }
-
-    // section_length = sectionData.length + CRC (4 bytes)
-    uint16_t sectionLength = (uint16_t)(sectionData.length + 4);
-
-    // Section syntax indicator (1) + private bit (0) + reserved (11) + section_length (12 bits)
-    uint16_t byte2and3 = 0xB000 | (sectionLength & 0x0FFF);
-    bytes[offset++] = (byte2and3 >> 8) & 0xFF;
-    bytes[offset++] = byte2and3 & 0xFF;
-
-    // Section data (excluding CRC)
-    memcpy(bytes + offset, sectionData.bytes, sectionData.length);
-    offset += sectionData.length;
-
-    // CRC32 (4 bytes) - use dummy value for testing
-    uint32_t crc = CFSwapInt32HostToBig(0x12345678);
-    memcpy(bytes + offset, &crc, 4);
-    offset += 4;
-
-    // Fill rest with stuffing bytes (0xFF)
-    while (offset < TS_PACKET_SIZE_188) {
-        bytes[offset++] = 0xFF;
-    }
-
-    // Parse raw data into TSPacket
-    NSArray<TSPacket *> *packets = [TSPacket packetsFromChunkedTsData:packet packetSize:TS_PACKET_SIZE_188];
-    return packets.firstObject;
-}
-
 #pragma mark - Tests
 
 - (void)test_singleSectionTable_deliveredImmediately {
@@ -117,7 +33,7 @@
 
     // Create single-section table (sectionNumber=0, lastSectionNumber=0)
     NSData *payload = [@"SINGLE" dataUsingEncoding:NSUTF8StringEncoding];
-    TSPacket *packet = [self createPsiPacketWithPid:0x00
+    TSPacket *packet = [TSTestUtils createPsiPacketWithPid:0x00
                                             tableId:0x00
                                    tableIdExtension:0x0001
                                       versionNumber:1
@@ -138,7 +54,7 @@
 
     // Create section 0 of 2 (lastSectionNumber=1 means 2 sections total)
     NSData *payload0 = [@"PART0" dataUsingEncoding:NSUTF8StringEncoding];
-    TSPacket *packet0 = [self createPsiPacketWithPid:0x00
+    TSPacket *packet0 = [TSTestUtils createPsiPacketWithPid:0x00
                                              tableId:0x00
                                     tableIdExtension:0x0001
                                        versionNumber:1
@@ -157,7 +73,7 @@
 
     // Create section 0 of 2
     NSData *payload0 = [@"PART0" dataUsingEncoding:NSUTF8StringEncoding];
-    TSPacket *packet0 = [self createPsiPacketWithPid:0x00
+    TSPacket *packet0 = [TSTestUtils createPsiPacketWithPid:0x00
                                              tableId:0x00
                                     tableIdExtension:0x0001
                                        versionNumber:1
@@ -168,7 +84,7 @@
 
     // Create section 1 of 2
     NSData *payload1 = [@"PART1" dataUsingEncoding:NSUTF8StringEncoding];
-    TSPacket *packet1 = [self createPsiPacketWithPid:0x00
+    TSPacket *packet1 = [TSTestUtils createPsiPacketWithPid:0x00
                                              tableId:0x00
                                     tableIdExtension:0x0001
                                        versionNumber:1
@@ -194,7 +110,7 @@
 
     // Create section 0 of 2
     NSData *payload0 = [@"AAA" dataUsingEncoding:NSUTF8StringEncoding];
-    TSPacket *packet0 = [self createPsiPacketWithPid:0x00
+    TSPacket *packet0 = [TSTestUtils createPsiPacketWithPid:0x00
                                              tableId:0x00
                                     tableIdExtension:0x0001
                                        versionNumber:1
@@ -205,7 +121,7 @@
 
     // Create section 1 of 2
     NSData *payload1 = [@"BBB" dataUsingEncoding:NSUTF8StringEncoding];
-    TSPacket *packet1 = [self createPsiPacketWithPid:0x00
+    TSPacket *packet1 = [TSTestUtils createPsiPacketWithPid:0x00
                                              tableId:0x00
                                     tableIdExtension:0x0001
                                        versionNumber:1
@@ -235,7 +151,7 @@
 
     // Create section 1 first (out of order)
     NSData *payload1 = [@"BBB" dataUsingEncoding:NSUTF8StringEncoding];
-    TSPacket *packet1 = [self createPsiPacketWithPid:0x00
+    TSPacket *packet1 = [TSTestUtils createPsiPacketWithPid:0x00
                                              tableId:0x00
                                     tableIdExtension:0x0001
                                        versionNumber:1
@@ -246,7 +162,7 @@
 
     // Then section 0
     NSData *payload0 = [@"AAA" dataUsingEncoding:NSUTF8StringEncoding];
-    TSPacket *packet0 = [self createPsiPacketWithPid:0x00
+    TSPacket *packet0 = [TSTestUtils createPsiPacketWithPid:0x00
                                              tableId:0x00
                                     tableIdExtension:0x0001
                                        versionNumber:1
@@ -274,7 +190,7 @@
 
     // Create section 0 of version 1
     NSData *payload0 = [@"OLD" dataUsingEncoding:NSUTF8StringEncoding];
-    TSPacket *packet0 = [self createPsiPacketWithPid:0x00
+    TSPacket *packet0 = [TSTestUtils createPsiPacketWithPid:0x00
                                              tableId:0x00
                                     tableIdExtension:0x0001
                                        versionNumber:1
@@ -288,7 +204,7 @@
 
     // Now receive new version (complete single-section table)
     NSData *payloadNew = [@"NEW" dataUsingEncoding:NSUTF8StringEncoding];
-    TSPacket *packetNew = [self createPsiPacketWithPid:0x00
+    TSPacket *packetNew = [TSTestUtils createPsiPacketWithPid:0x00
                                               tableId:0x00
                                      tableIdExtension:0x0001
                                         versionNumber:2
