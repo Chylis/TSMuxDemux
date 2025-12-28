@@ -95,33 +95,62 @@ static inline BOOL streamIdHasNoOptionalHeader(uint8_t streamId) {
         return nil;
     }
 
-    uint64_t pts = 0x0;
-    uint64_t dts = 0x0;
+    BOOL ptsValid = NO;
+    BOOL dtsValid = NO;
+    uint64_t pts = 0;
+    uint64_t dts = 0;
+
     if (hasPts) {
         uint8_t ptsBytes[5];
         [payload getBytes:ptsBytes range:NSMakeRange(9, TIMESTAMP_LENGTH)];
-        uint64_t ptsBits32To30 = (ptsBytes[0] >> 1) & 0x7;
-        uint64_t ptsBits29To22 = ptsBytes[1];
-        uint64_t ptsBits21To15 = (ptsBytes[2] >> 1) & 0x7F;
-        uint64_t ptsBits14To7 = ptsBytes[3];
-        uint64_t ptsBits6To0 = (ptsBytes[4] >> 1) & 0x7F;
-        pts = (ptsBits32To30 << 30) | (ptsBits29To22 << 22) | (ptsBits21To15 << 15) | (ptsBits14To7 << 7) | ptsBits6To0;
+
+        // Validate marker bits (bit 0 of bytes 0, 2, 4 must be 1)
+        // Validate prefix: 0010 for PTS-only, 0011 for PTS+DTS
+        uint8_t expectedPrefix = hasDts ? 0x3 : 0x2;
+        uint8_t actualPrefix = (ptsBytes[0] >> 4) & 0x0F;
+        BOOL markersOk = (ptsBytes[0] & 0x01) && (ptsBytes[2] & 0x01) && (ptsBytes[4] & 0x01);
+
+        if (actualPrefix == expectedPrefix && markersOk) {
+            uint64_t ptsBits32To30 = (ptsBytes[0] >> 1) & 0x7;
+            uint64_t ptsBits29To22 = ptsBytes[1];
+            uint64_t ptsBits21To15 = (ptsBytes[2] >> 1) & 0x7F;
+            uint64_t ptsBits14To7 = ptsBytes[3];
+            uint64_t ptsBits6To0 = (ptsBytes[4] >> 1) & 0x7F;
+            pts = (ptsBits32To30 << 30) | (ptsBits29To22 << 22) | (ptsBits21To15 << 15) | (ptsBits14To7 << 7) | ptsBits6To0;
+            ptsValid = YES;
+        } else {
+            NSLog(@"TSPesHeader: Invalid PTS marker bits or prefix (expected 0x%X, got 0x%X, markers: %d%d%d)",
+                  expectedPrefix, actualPrefix,
+                  (ptsBytes[0] & 0x01), (ptsBytes[2] & 0x01) >> 0, (ptsBytes[4] & 0x01) >> 0);
+        }
 
         if (hasDts) {
             uint8_t dtsBytes[5];
             [payload getBytes:dtsBytes range:NSMakeRange(9 + TIMESTAMP_LENGTH, TIMESTAMP_LENGTH)];
-            uint64_t dtsBits32To30 = (dtsBytes[0] >> 1) & 0x7;
-            uint64_t dtsBits29To22 = dtsBytes[1];
-            uint64_t dtsBits21To15 = (dtsBytes[2] >> 1) & 0x7F;
-            uint64_t dtsBits14To7 = dtsBytes[3];
-            uint64_t dtsBits6To0 = (dtsBytes[4] >> 1) & 0x7F;
-            dts = (dtsBits32To30 << 30) | (dtsBits29To22 << 22) | (dtsBits21To15 << 15) | (dtsBits14To7 << 7) | dtsBits6To0;
+
+            // Validate marker bits and prefix (0001 for DTS)
+            uint8_t dtsPrefix = (dtsBytes[0] >> 4) & 0x0F;
+            BOOL dtsMarkersOk = (dtsBytes[0] & 0x01) && (dtsBytes[2] & 0x01) && (dtsBytes[4] & 0x01);
+
+            if (dtsPrefix == 0x1 && dtsMarkersOk) {
+                uint64_t dtsBits32To30 = (dtsBytes[0] >> 1) & 0x7;
+                uint64_t dtsBits29To22 = dtsBytes[1];
+                uint64_t dtsBits21To15 = (dtsBytes[2] >> 1) & 0x7F;
+                uint64_t dtsBits14To7 = dtsBytes[3];
+                uint64_t dtsBits6To0 = (dtsBytes[4] >> 1) & 0x7F;
+                dts = (dtsBits32To30 << 30) | (dtsBits29To22 << 22) | (dtsBits21To15 << 15) | (dtsBits14To7 << 7) | dtsBits6To0;
+                dtsValid = YES;
+            } else {
+                NSLog(@"TSPesHeader: Invalid DTS marker bits or prefix (expected 0x1, got 0x%X, markers: %d%d%d)",
+                      dtsPrefix,
+                      (dtsBytes[0] & 0x01), (dtsBytes[2] & 0x01) >> 0, (dtsBytes[4] & 0x01) >> 0);
+            }
         }
     }
 
     TSPesHeader *header = [[TSPesHeader alloc] init];
-    header->_pts = hasPts ? CMTimeMake(pts, TS_TIMESTAMP_TIMESCALE) : kCMTimeInvalid;
-    header->_dts = hasDts ? CMTimeMake(dts, TS_TIMESTAMP_TIMESCALE) : kCMTimeInvalid;
+    header->_pts = ptsValid ? CMTimeMake(pts, TS_TIMESTAMP_TIMESCALE) : kCMTimeInvalid;
+    header->_dts = dtsValid ? CMTimeMake(dts, TS_TIMESTAMP_TIMESCALE) : kCMTimeInvalid;
     header->_isDiscontinuous = packet.adaptationField.discontinuityFlag;
     header->_payloadOffset = payloadOffset;
     header->_pesPacketLength = pesPacketLength;
