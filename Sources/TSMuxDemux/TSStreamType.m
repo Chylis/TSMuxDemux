@@ -151,6 +151,7 @@ static const uint32_t kFormatIdentifierBSSD     = 0x42535344; // ASCII: "BSSD" (
             // ISO audio stream: 110x xxxx = 0xC0
             return 0xC0;
 
+        case kRawStreamTypeMPEG2Video:
         case kRawStreamTypeH264:
         case kRawStreamTypeH265:
             // Video stream: 1110 xxxx = 0xE0
