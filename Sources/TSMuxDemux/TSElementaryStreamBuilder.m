@@ -10,6 +10,7 @@
 #import "TSPacket.h"
 #import "TSPesHeader.h"
 #import "TSStreamType.h"
+#import "TSContinuityChecker.h"
 #import <CoreMedia/CoreMedia.h>
 
 @interface TSElementaryStreamBuilder()
@@ -20,14 +21,11 @@
 @property(nonatomic, strong) NSMutableData *collectedData;
 @property(nonatomic) TSResolvedStreamType resolvedStreamType;
 @property(nonatomic) BOOL isVideo;
+@property(nonatomic, strong) TSContinuityChecker *ccChecker;
 
 @end
 
 @implementation TSElementaryStreamBuilder
-{
-    BOOL _hasLastCC;
-    uint8_t _lastContinuityCounter;
-}
 
 -(instancetype _Nonnull)initWithDelegate:(id<TSElementaryStreamBuilderDelegate>)delegate
                                      pid:(uint16_t)pid
@@ -41,8 +39,7 @@
         _streamType = streamType;
         _descriptors = descriptors;
         _collectedData = nil;
-        _hasLastCC = NO;
-        _lastContinuityCounter = 0;
+        _ccChecker = [[TSContinuityChecker alloc] init];
         _resolvedStreamType = [TSStreamType resolveStreamType:streamType descriptors:descriptors];
         _isVideo = [TSStreamType isVideo:_resolvedStreamType];
     }
@@ -57,17 +54,22 @@
         NSLog(@"TSElementaryStreamBuilder: PID mismatch (got %u, expected %u)", tsPacket.header.pid, self.pid);
         return;
     }
-    //NSLog(@"pid: %u, CC '%u', adaptation: %u", self.pid, tsPacket.header.continuityCounter, tsPacket.header.adaptationMode);
 
-    BOOL isDuplicateCC = _hasLastCC &&
-        tsPacket.header.continuityCounter == _lastContinuityCounter &&
-        !tsPacket.adaptationField.discontinuityFlag;
+    TSContinuityCheckResult ccResult = [self.ccChecker checkPacket:tsPacket];
 
-    _hasLastCC = YES;
-    _lastContinuityCounter = tsPacket.header.continuityCounter;
+    if (ccResult == TSContinuityCheckResultGap) {
+        // Packets were lost - discard in-progress data to avoid delivering corrupted access unit
+        if (self.collectedData.length > 0) {
+            NSLog(@"TSElementaryStreamBuilder: CC gap on PID %u (packets lost), discarding %lu bytes",
+                  self.pid, (unsigned long)self.collectedData.length);
+        }
+        self.collectedData = nil;
+        self.pts = kCMTimeInvalid;
+        self.dts = kCMTimeInvalid;
+        return;
+    }
 
-    if (isDuplicateCC) {
-        // FIXME MG: Consider not only duplicate CCs but also gaps
+    if (ccResult == TSContinuityCheckResultDuplicate) {
         return;
     }
 

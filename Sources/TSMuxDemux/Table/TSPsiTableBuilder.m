@@ -8,33 +8,31 @@
 
 #import "TSPsiTableBuilder.h"
 #import "../TSPacket.h"
+#import "../TSContinuityChecker.h"
 #import "TSProgramSpecificInformationTable.h"
 #import <CoreMedia/CoreMedia.h>
 
 @interface TSPsiTableBuilder()
 @property(nonatomic, strong) TSProgramSpecificInformationTable *tableInProgress;
+@property(nonatomic, strong) TSContinuityChecker *ccChecker;
 @end
 
 /**
- 
+
  Assumptions:
  - PSI sections must not be interleaved on the same PID,
  i.e. once a tableId/section begins (e.g.SDT), all subsequent TS packets with that PID must continue that section until complete.
- 
+
  Example of invalid sequence:
  packet 1: pid 0x11 (SDT, packet 1/4)
  packet 2: pid 0x11 (SDT, packet 2/4)
  packet 3: pid 0x11 (BAT, full section)
  packet 4: pid 0x11 (SDT, packet 3/4)
  packet 5: pid 0x11 (SDT, packet 4/4)
- 
+
  -
  */
 @implementation TSPsiTableBuilder
-{
-    BOOL _hasLastCC;
-    uint8_t _lastContinuityCounter;
-}
 
 -(instancetype _Nonnull)initWithDelegate:(id<TSPsiTableBuilderDelegate>)delegate
                                      pid:(uint16_t)pid
@@ -43,8 +41,7 @@
     if (self) {
         _delegate = delegate;
         _pid = pid;
-        _hasLastCC = NO;
-        _lastContinuityCounter = 0;
+        _ccChecker = [[TSContinuityChecker alloc] init];
     }
     return self;
 }
@@ -55,14 +52,23 @@
         NSLog(@"TSPsiTableBuilder: PID mismatch (got %u, expected %u)", tsPacket.header.pid, self.pid);
         return;
     }
-    BOOL isDuplicateCC = _hasLastCC && tsPacket.header.continuityCounter == _lastContinuityCounter;
 
-    _hasLastCC = YES;
-    _lastContinuityCounter = tsPacket.header.continuityCounter;
-    if (isDuplicateCC) { // FIXME MG: Consider not only duplicate CCs but also gaps
+    TSContinuityCheckResult ccResult = [self.ccChecker checkPacket:tsPacket];
+
+    if (ccResult == TSContinuityCheckResultGap) {
+        // Packets were lost - discard in-progress table to avoid processing corrupted section
+        if (self.tableInProgress) {
+            NSLog(@"TSPsiTableBuilder: CC gap on PID 0x%04x (packets lost), discarding incomplete table 0x%02x",
+                  self.pid, self.tableInProgress.tableId);
+        }
+        self.tableInProgress = nil;
         return;
     }
-    
+
+    if (ccResult == TSContinuityCheckResultDuplicate) {
+        return;
+    }
+
     NSUInteger offset = 0;
     
     if (tsPacket.header.payloadUnitStartIndicator) {
