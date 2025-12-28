@@ -175,18 +175,25 @@
     NSUInteger programDescriptorsRemainingLength = self.programInfoLength;
     NSUInteger offset = 9;
     
+    NSUInteger dataLength = self.psi.sectionDataExcludingCrc.length;
     while (programDescriptorsRemainingLength > 0) { // program-info loop begin
+        // Bounds check: need at least 2 bytes for tag and length
+        if (offset + 2 > dataLength) break;
+
         uint8_t descriptorTag = 0x0;
         [self.psi.sectionDataExcludingCrc getBytes:&descriptorTag range:NSMakeRange(offset, 1)];
         offset++;
         programDescriptorsRemainingLength--;
-        
+
         // descriptorLength specifies the number of bytes of the descriptor immediately following the descriptor_length field.
         uint8_t descriptorLength = 0x0;
         [self.psi.sectionDataExcludingCrc getBytes:&descriptorLength range:NSMakeRange(offset, 1)];
         offset++;
         programDescriptorsRemainingLength--;
-        
+
+        // Bounds check: ensure descriptor payload fits in buffer
+        if (offset + descriptorLength > dataLength) break;
+
         NSData *descriptorPayload = descriptorLength > 0
         ? [NSData dataWithBytesNoCopy:(void*)[self.psi.sectionDataExcludingCrc bytes] + offset
                                length:descriptorLength
@@ -212,6 +219,7 @@
     return nil;
 }
 
+// TODO: Performance improvement - cache result, table is immutable after creation
 -(NSSet<TSElementaryStream*> * _Nonnull)elementaryStreams
 {
     NSMutableSet *elementaryStreams = [NSMutableSet set];
@@ -237,18 +245,25 @@
         NSMutableArray<TSDescriptor*> *esDescriptors = nil;
         if (esInfoLength > 0) {
             esDescriptors = [NSMutableArray array];
+            NSUInteger esDataLength = self.psi.sectionDataExcludingCrc.length;
             while (esInfoRemainingLength > 0) { // es-descriptor loop begin
+                // Bounds check: need at least 2 bytes for tag and length
+                if (offset + 2 > esDataLength) break;
+
                 uint8_t descriptorTag = 0x0;
                 [self.psi.sectionDataExcludingCrc getBytes:&descriptorTag range:NSMakeRange(offset, 1)];
                 offset++;
                 esInfoRemainingLength--;
-                
+
                 // descriptorLength specifies the number of bytes of the descriptor immediately following the descriptor_length field.
                 uint8_t descriptorLength = 0x0;
                 [self.psi.sectionDataExcludingCrc getBytes:&descriptorLength range:NSMakeRange(offset, 1)];
                 offset++;
                 esInfoRemainingLength--;
-                
+
+                // Bounds check: ensure descriptor payload fits in buffer
+                if (offset + descriptorLength > esDataLength) break;
+
                 NSData *descriptorPayload = descriptorLength > 0
                 ? [NSData dataWithBytesNoCopy:(void*)[self.psi.sectionDataExcludingCrc bytes] + offset
                                        length:descriptorLength
