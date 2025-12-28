@@ -119,6 +119,7 @@
             self.isDiscontinuous = pesHeader.isDiscontinuous;
 
             // Estimate capacity to minimize reallocations during accumulation
+            // TODO: Future improvement - consider larger defaults or adaptive sizing for 4K/HDR content
             NSUInteger capacity;
             if (pesHeader.pesPacketLength != 0) {
                 // pesPacketLength (num bytes remaining after the pesPacketLength field) is known - use it
