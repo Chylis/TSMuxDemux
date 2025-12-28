@@ -54,19 +54,23 @@ static const uint8_t TIMESTAMP_LENGTH = 5; // A timestamp (pts/dts) is a 33-bit 
 
     // PES-packet length (2 bytes):
     // Specifies the number of bytes remaining in the packet after this field.
-    // Can be zero for video access units.
-    uint16_t pesPacketLength = 1 + 1 + 1 + self.compressedData.length; // flags-1 length + flags-2 length + PES-header-data-length + payload
-    uint8_t ptsDtsIndicator = 0x00; // 0x00 equals no timetamps available
+    // A value of 0 means unbounded (common for video).
+    uint8_t ptsDtsIndicator = 0x00; // 0x00 equals no timestamps available
+    NSUInteger timestampLength = 0;
     if (hasPTS) {
         ptsDtsIndicator = 0x02; // 0x02 equals only PTS available
-        pesPacketLength += TIMESTAMP_LENGTH;
+        timestampLength = TIMESTAMP_LENGTH;
 
         if (hasDTS) {
             ptsDtsIndicator = 0x03; // 0x03 equals both PTS and DTS available
-            pesPacketLength += TIMESTAMP_LENGTH;
+            timestampLength = 2 * TIMESTAMP_LENGTH;
         }
     }
 
+    // Calculate total length: flags-1 + flags-2 + header-data-length + timestamps + payload
+    NSUInteger totalLength = 1 + 1 + 1 + timestampLength + self.compressedData.length;
+    // Use 0 (unbounded) if length exceeds uint16_t max
+    uint16_t pesPacketLength = (totalLength > UINT16_MAX) ? 0 : (uint16_t)totalLength;
     pesPacketLength = CFSwapInt16HostToBig(pesPacketLength);
     [header appendBytes:&pesPacketLength length:2];
 
