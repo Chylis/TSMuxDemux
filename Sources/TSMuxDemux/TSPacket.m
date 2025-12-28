@@ -287,21 +287,20 @@
 
 -(NSData*)getBytes
 {
-    const BOOL hasPcr = self.pcrBase > 0;
     NSMutableData *data = [NSMutableData dataWithCapacity:1 + self.adaptationFieldLength];
-    
+
     // Adaption header byte 1:
     // adaptation_field_length = number of bytes in the adaptation_field following this field
     const uint8_t adaptionHeaderByte1 = self.adaptationFieldLength;
     [data appendBytes:&adaptionHeaderByte1 length:1];
-    
+
     if (self.adaptationFieldLength > 0) {
         // FIXME MG: Consider discontinuity, random access, etc
         // Adaption header byte 2:      flags indicating the presence of optional fields in the adaptation header
-        const uint8_t adaptionHeaderByte2 = hasPcr ? 0b00010000 : 0b00000000;
+        const uint8_t adaptionHeaderByte2 = self.pcrFlag ? 0b00010000 : 0b00000000;
         [data appendBytes:&adaptionHeaderByte2 length:1];
-    
-        if (hasPcr) {
+
+        if (self.pcrFlag) {
             // PCR: a 48-bit container containing a 42-bit pcr coded in two parts (pcrBase + pcrExt) separated by 6 reserved bits, i.e. base + reserved + ext.
             uint8_t pcr[6];
             // byte 1: bits 8-1:    Bits 33-26 of the pcrBase
