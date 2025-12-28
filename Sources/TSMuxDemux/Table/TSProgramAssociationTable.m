@@ -117,6 +117,7 @@
     return nil;
 }
 
+// TODO: Performance improvement - cache result, table is immutable after creation
 -(NSDictionary*)programmes
 {
     NSUInteger baseOffset = 5;

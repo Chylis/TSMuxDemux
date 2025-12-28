@@ -76,6 +76,7 @@ uint64_t const TR101290_PID_INTERVAL_MS = 5000;
     return [[PidUtil reservedPids] containsObject:@(pid)];
 }
 
+// TODO: Performance improvement - use static cached array
 +(NSArray<NSNumber*>*)reservedPids
 {
     return @[

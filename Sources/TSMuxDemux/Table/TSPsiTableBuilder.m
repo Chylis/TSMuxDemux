@@ -110,6 +110,7 @@
                                                         NSMakeRange(offset, remainingBytesInTable - PSI_CRC_LEN)];
             offset+=readSectionDataNoCrc.length;
             
+            // TODO: Performance improvement - use persistent mutable buffer instead of copying on each append
             NSData *sectionDataExcludingCrc = readSectionDataNoCrc;
             if (self.tableInProgress) {
                 NSMutableData *collectedData = [NSMutableData dataWithData:self.tableInProgress.sectionDataExcludingCrc];

@@ -162,6 +162,7 @@
     return self.tsPacketAnalyzer.stats;
 }
 
+// TODO: Performance improvement - maintain direct PID to PMT index
 -(TSProgramMapTable* _Nullable)pmtForPid:(uint16_t)pid
 {
     for (TSProgramMapTable *pmt in [_pmts allValues]) {
