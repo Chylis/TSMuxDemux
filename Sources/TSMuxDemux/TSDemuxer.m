@@ -21,7 +21,6 @@
 #import "TSElementaryStream.h"
 #import "TSElementaryStreamBuilder.h"
 #import "Table/TSPsiTableBuilder.h"
-#import "TSTimeUtil.h"
 
 #pragma mark - DVB State Wrapper
 
@@ -58,7 +57,8 @@
 @implementation TSDemuxer
 {
     NSMutableDictionary<ProgramNumber,TSProgramMapTable*> *_pmts;
-    NSDictionary<NSNumber*, TSProgramMapTable*> *_cachedPmtsByPid;
+    NSDictionary<PmtPid, TSProgramMapTable*> *_pmtsByPid;
+    NSDictionary<Pid, TSProgramMapTable*> *_elementaryStreamPidToPmt;
 
     // Packet format auto-detection (0 = not yet detected)
     NSUInteger _packetSize;
@@ -90,7 +90,8 @@
         return;
     }
     _pat = pat;
-    _cachedPmtsByPid = nil;
+    _pmtsByPid = nil;
+    _elementaryStreamPidToPmt = nil;
     [self.delegate demuxer:self didReceivePat:pat previousPat:prevPat];
 }
 
@@ -153,7 +154,8 @@
     }
 
     _pmts[programNumber] = pmt;
-    _cachedPmtsByPid = nil;
+    _pmtsByPid = nil;
+    _elementaryStreamPidToPmt = nil;
     [self.delegate demuxer:self didReceivePmt:pmt previousPmt:prevPmt];
 }
 
@@ -162,23 +164,32 @@
     return self.tsPacketAnalyzer.stats;
 }
 
-// TODO: Performance improvement - maintain direct PID to PMT index
--(TSProgramMapTable* _Nullable)pmtForPid:(uint16_t)pid
+-(NSDictionary<Pid, TSProgramMapTable*>*)elementaryStreamPidToPmtMap
 {
+    if (_elementaryStreamPidToPmt) {
+        return _elementaryStreamPidToPmt;
+    }
+    NSMutableDictionary *map = [NSMutableDictionary dictionary];
     for (TSProgramMapTable *pmt in [_pmts allValues]) {
-        if ([pmt elementaryStreamWithPid:pid]) {
-            return pmt;
+        for (TSElementaryStream *es in pmt.elementaryStreams) {
+            map[@(es.pid)] = pmt;
         }
     }
-    return nil;
+    _elementaryStreamPidToPmt = map;
+    return _elementaryStreamPidToPmt;
+}
+
+-(TSProgramMapTable* _Nullable)pmtForPid:(uint16_t)pid
+{
+    return [self elementaryStreamPidToPmtMap][@(pid)];
 }
 
 /// Returns PMTs keyed by their PID (for TR101290 analysis).
 /// Result is cached and invalidated when PAT or PMT changes.
--(NSDictionary<NSNumber*, TSProgramMapTable*>*)pmtsByPid
+-(NSDictionary<PmtPid, TSProgramMapTable*>*)pmtsByPid
 {
-    if (_cachedPmtsByPid) {
-        return _cachedPmtsByPid;
+    if (_pmtsByPid) {
+        return _pmtsByPid;
     }
     if (!self.pat) {
         return @{};
@@ -190,8 +201,8 @@
             result[pmtPid] = pmt;
         }
     }];
-    _cachedPmtsByPid = result;
-    return _cachedPmtsByPid;
+    _pmtsByPid = result;
+    return _pmtsByPid;
 }
 
 #pragma mark - Packet Routing Helpers
