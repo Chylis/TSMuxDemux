@@ -14,6 +14,9 @@
 #define ELEMENTARY_STREAM_BYTE_LENGTH 5
 
 @implementation TSProgramMapTable
+{
+    NSSet<TSElementaryStream*> *_elementaryStreams;
+}
 
 #pragma mark - Muxer
 
@@ -219,29 +222,32 @@
     return nil;
 }
 
-// TODO: Performance improvement - cache result, table is immutable after creation
 -(NSSet<TSElementaryStream*> * _Nonnull)elementaryStreams
 {
-    NSMutableSet *elementaryStreams = [NSMutableSet set];
+    if (_elementaryStreams) {
+        return _elementaryStreams;
+    }
+
+    NSMutableSet *result = [NSMutableSet set];
     NSUInteger offset = 9 + self.programInfoLength;
     while (offset < self.psi.sectionDataExcludingCrc.length) { // elementary stream loop begin
         uint8_t esByte1 = 0x0;
         [self.psi.sectionDataExcludingCrc getBytes:&esByte1 range:NSMakeRange(offset, 1)];
         offset++;
         const uint8_t esStreamType = esByte1;
-        
+
         uint16_t esBytes2And3 = 0x0;
         [self.psi.sectionDataExcludingCrc getBytes:&esBytes2And3 range:NSMakeRange(offset, 2)];
         offset +=2;
         const uint16_t esPid = CFSwapInt16BigToHost(esBytes2And3) & (uint16_t)0x1FFF;
-        
+
         uint16_t esBytes4And5 = 0x0;
         [self.psi.sectionDataExcludingCrc getBytes:&esBytes4And5 range:NSMakeRange(offset, 2)];
         offset +=2;
         // esInfoLength specifies the number of bytes of the descriptors of the associated program element immediately following the ES_info_length field.
         const uint16_t esInfoLength = CFSwapInt16BigToHost(esBytes4And5) & (uint16_t)0x3FF;
         NSUInteger esInfoRemainingLength = esInfoLength;
-        
+
         NSMutableArray<TSDescriptor*> *esDescriptors = nil;
         if (esInfoLength > 0) {
             esDescriptors = [NSMutableArray array];
@@ -277,14 +283,15 @@
                 [esDescriptors addObject:esDescriptor];
             } // es-descriptor loop end
         }
-        
+
         TSElementaryStream *stream = [[TSElementaryStream alloc] initWithPid:esPid
                                                                   streamType:esStreamType
                                                                  descriptors:esDescriptors];
-        [elementaryStreams addObject:stream];
+        [result addObject:stream];
     } // ES-stream loop end
-    
-    return elementaryStreams;
+
+    _elementaryStreams = result;
+    return _elementaryStreams;
 }
 
 #pragma mark - Overridden
