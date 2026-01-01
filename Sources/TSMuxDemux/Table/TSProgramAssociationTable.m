@@ -10,8 +10,10 @@
 
 #define PROGRAM_BYTE_LENGTH 4
 
-/// No stored properties are used - everything is contained within 'sectionData'
 @implementation TSProgramAssociationTable
+{
+    NSDictionary<ProgramNumber, PmtPid> *_programmes;
+}
 
 #pragma mark - Muxer
 
@@ -117,9 +119,12 @@
     return nil;
 }
 
-// TODO: Performance improvement - cache result, table is immutable after creation
 -(NSDictionary*)programmes
 {
+    if (_programmes) {
+        return _programmes;
+    }
+
     NSUInteger baseOffset = 5;
     const NSUInteger numberOfPrograms = (self.psi.sectionDataExcludingCrc.length - baseOffset) / PROGRAM_BYTE_LENGTH;
     NSMutableDictionary *programPmtMap = [NSMutableDictionary dictionaryWithCapacity:numberOfPrograms];
@@ -128,14 +133,15 @@
         uint16_t programByte1And2 = 0x0;
         [self.psi.sectionDataExcludingCrc getBytes:&programByte1And2 range:NSMakeRange(programOffset, 2)];
         uint16_t programNumber = CFSwapInt16BigToHost(programByte1And2);
-        
+
         uint16_t programByte3And4 = 0x0;
         [self.psi.sectionDataExcludingCrc getBytes:&programByte3And4 range:NSMakeRange(programOffset + 2, 2)];
         uint16_t programPmtPid = CFSwapInt16BigToHost(programByte3And4) & 0x1FFF;
-        
+
         programPmtMap[@(programNumber)] = @(programPmtPid);
     }
-    return programPmtMap;
+    _programmes = programPmtMap;
+    return _programmes;
 }
 
 
