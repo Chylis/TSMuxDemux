@@ -80,8 +80,10 @@ FOUNDATION_EXPORT NSUInteger const PID_ATSC_PSIP;       // PSIP base PID
 FOUNDATION_EXPORT uint64_t const TR101290_PAT_PMT_INTERVAL_MS;  // PAT/PMT must occur every 500ms
 FOUNDATION_EXPORT uint64_t const TR101290_PID_INTERVAL_MS;      // Video/audio PID must occur every 5s
 
-@interface PidUtil : NSObject
+@interface TSPidUtil : NSObject
 +(BOOL)isCustomPidInvalid:(uint16_t)pid;
 +(BOOL)isReservedPid:(uint16_t)pid;
 +(NSArray<NSNumber*>* _Nonnull)reservedPids;
++(BOOL)isDvbReservedPid:(uint16_t)pid;
++(BOOL)isAtscReservedPid:(uint16_t)pid;
 @end

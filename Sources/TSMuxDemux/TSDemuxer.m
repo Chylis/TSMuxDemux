@@ -194,6 +194,77 @@
     return _cachedPmtsByPid;
 }
 
+#pragma mark - Packet Routing Helpers
+
+/// Adds a TS packet to the appropriate PSI table builder, creating one if needed.
+-(void)addPacketToPsiTableBuilder:(TSPacket *)tsPacket forPid:(uint16_t)pid
+{
+    TSPsiTableBuilder *builder = [self.tableBuilders objectForKey:@(pid)];
+    if (!builder) {
+        builder = [[TSPsiTableBuilder alloc] initWithDelegate:self pid:pid];
+        [self.tableBuilders setObject:builder forKey:@(pid)];
+    }
+    [builder addTsPacket:tsPacket];
+}
+
+
+/// Routes a single TS packet to appropriate handler. Returns YES if packet is PES data.
+-(BOOL)routeTsPacket:(TSPacket *)tsPacket
+{
+    uint16_t pid = tsPacket.header.pid;
+
+    // Standard PIDs (mode-agnostic)
+    if (pid == PID_PAT) {
+        [self addPacketToPsiTableBuilder:tsPacket forPid:pid];
+        return NO;
+    }
+    if (pid == PID_CAT)        { return NO; }  // TODO: Parse CAT
+    if (pid == PID_TSDT)       { NSLog(@"Received TSDT"); return NO; }  // TODO: Parse
+    if (pid == PID_IPMP)       { NSLog(@"Received IPMP"); return NO; }  // TODO: Parse
+    if (pid == PID_ASI)        { NSLog(@"Received ASI"); return NO; }   // TODO: Parse
+    if (pid == PID_NULL_PACKET) { return NO; }
+
+    // DVB mode
+    if (self.mode == TSDemuxerModeDVB) {
+        if (pid == PID_DVB_SDT_BAT_ST) {
+            [self addPacketToPsiTableBuilder:tsPacket forPid:pid];
+            return NO;
+        }
+        if (pid >= PID_DVB_NIT_ST && pid <= PID_DVB_SIT) {
+            return NO;  // Other DVB reserved PIDs - not yet implemented
+        }
+        if ([TSPidUtil isAtscReservedPid:pid]) {
+            NSLog(@"[TSDemuxer] WARN: Received ATSC PID 0x%04X in DVB mode - possible mode mismatch", pid);
+            return NO;
+        }
+    }
+
+    // ATSC mode
+    if (self.mode == TSDemuxerModeATSC) {
+        if (pid == PID_ATSC_PSIP) {
+            [self addPacketToPsiTableBuilder:tsPacket forPid:pid];
+            return NO;
+        }
+        if ([TSPidUtil isDvbReservedPid:pid]) {
+            NSLog(@"[TSDemuxer] WARN: Received DVB PID 0x%04X in ATSC mode - possible mode mismatch", pid);
+            return NO;
+        }
+    }
+
+    // PMT and elementary streams (from PAT)
+    ProgramNumber programNumber = [self.pat programNumberFromPid:pid];
+    if (programNumber != nil) {
+        if ([programNumber isEqualToNumber:@(PROGRAM_NUMBER_NETWORK_INFO)]) {
+            return NO;  // TODO: Parse Network Info table
+        }
+        [self addPacketToPsiTableBuilder:tsPacket forPid:pid];  // PMT
+        return NO;
+    }
+
+    // Not a reserved PID and not in PAT - treat as PES
+    return ![TSPidUtil isReservedPid:pid];
+}
+
 -(NSUInteger)packetSize
 {
     return _packetSize;
@@ -219,78 +290,7 @@
 
     NSArray<TSPacket*> *tsPackets = [TSPacket packetsFromChunkedTsData:chunk packetSize:_packetSize];
     for (TSPacket *tsPacket in tsPackets) {
-        BOOL isPes = NO;
-
-        uint16_t pid = tsPacket.header.pid;
-        //NSLog(@"Received pid '%u'", pid);
-
-        // Standard-agnostic PIDs
-        if (pid == PID_PAT) {
-            TSPsiTableBuilder *builder = [self.tableBuilders objectForKey:@(pid)];
-            if (!builder) {
-                builder = [[TSPsiTableBuilder alloc] initWithDelegate:self pid:pid];
-                [self.tableBuilders setObject:builder forKey:@(pid)];
-            }
-            [builder addTsPacket:tsPacket];
-        } else if (pid == PID_CAT) {
-            // TODO Parse...
-            // NSLog(@"Received CAT");
-        } else if (pid == PID_TSDT) {
-            // TODO Parse...
-            NSLog(@"Received TSDT");
-        } else if (pid == PID_IPMP) {
-            // TODO Parse...
-            NSLog(@"Received IPMP");
-        } else if (pid == PID_ASI) {
-            // TODO Parse...
-            NSLog(@"Received ASI");
-        } else if (pid == PID_NULL_PACKET) {
-            // Null packet - ignore
-            //NSLog(@"Received null packet");
-        }
-        // DVB-specific PIDs (only in DVB mode)
-        else if (self.mode == TSDemuxerModeDVB && pid == PID_DVB_SDT_BAT_ST) {
-            TSPsiTableBuilder *builder = [self.tableBuilders objectForKey:@(pid)];
-            if (!builder) {
-                builder = [[TSPsiTableBuilder alloc] initWithDelegate:self pid:pid];
-                [self.tableBuilders setObject:builder forKey:@(pid)];
-            }
-            [builder addTsPacket:tsPacket];
-        } else if (self.mode == TSDemuxerModeDVB && pid >= PID_DVB_NIT_ST && pid <= PID_DVB_SIT) {
-            // Other DVB reserved PIDs - not yet implemented
-            // NSLog(@"Received DVB reserved PID: 0x%04X", pid);
-        }
-        // ATSC-specific PIDs (only in ATSC mode)
-        else if (self.mode == TSDemuxerModeATSC && pid == PID_ATSC_PSIP) {
-            TSPsiTableBuilder *builder = [self.tableBuilders objectForKey:@(pid)];
-            if (!builder) {
-                builder = [[TSPsiTableBuilder alloc] initWithDelegate:self pid:pid];
-                [self.tableBuilders setObject:builder forKey:@(pid)];
-            }
-            [builder addTsPacket:tsPacket];
-        }
-        // PMT and elementary streams
-        else {
-            ProgramNumber programNumber = [self.pat programNumberFromPid:pid];
-            const BOOL isPidInPat = programNumber != nil;
-            if (isPidInPat) {
-                // PSI
-                if ([programNumber isEqualToNumber:@(PROGRAM_NUMBER_NETWORK_INFO)]) {
-                    // TODO Parse...
-                    //NSLog(@"Received Network Info table");
-                } else {
-                    // PMT
-                    TSPsiTableBuilder *builder = [self.tableBuilders objectForKey:@(pid)];
-                    if (!builder) {
-                        builder = [[TSPsiTableBuilder alloc] initWithDelegate:self pid:pid];
-                        [self.tableBuilders setObject:builder forKey:@(pid)];
-                    }
-                    [builder addTsPacket:tsPacket];
-                }
-            } else if (![PidUtil isReservedPid:pid]){
-                isPes = YES;
-            }
-        }
+        BOOL isPes = [self routeTsPacket:tsPacket];
 
         TSTr101290AnalyzeContext *context = [[TSTr101290AnalyzeContext alloc]
                                              initWithPat:self.pat
@@ -303,8 +303,9 @@
         [self.pendingCompletedSections removeAllObjects];
 
         if (isPes) {
-            TSElementaryStreamBuilder *builder = [self.streamBuilders objectForKey:@(pid)];
-            [builder addTsPacket:tsPacket];
+            uint16_t pid = tsPacket.header.pid;
+            TSElementaryStreamBuilder *esBuilder = [self.streamBuilders objectForKey:@(pid)];
+            [esBuilder addTsPacket:tsPacket];
         }
     }
 }

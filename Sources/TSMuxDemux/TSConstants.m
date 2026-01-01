@@ -64,26 +64,31 @@ NSUInteger const PID_ATSC_PSIP = 0x1FFB;
 uint64_t const TR101290_PAT_PMT_INTERVAL_MS = 500;
 uint64_t const TR101290_PID_INTERVAL_MS = 5000;
 
-@implementation PidUtil
+@implementation TSPidUtil
 
 +(BOOL)isCustomPidInvalid:(uint16_t)pid
 {
-    return [PidUtil isReservedPid:pid] || pid < PID_OTHER_START_INDEX || pid > PID_OTHER_END_INDEX;
+    return [TSPidUtil isReservedPid:pid] || pid < PID_OTHER_START_INDEX || pid > PID_OTHER_END_INDEX;
 }
 
 +(BOOL)isReservedPid:(uint16_t)pid
 {
-    return [[PidUtil reservedPids] containsObject:@(pid)];
+    return [[TSPidUtil reservedPids] containsObject:@(pid)];
 }
 
-// TODO: Performance improvement - use static cached array
 +(NSArray<NSNumber*>*)reservedPids
 {
-    return @[
+    static NSArray<NSNumber*> *cachedPids = nil;
+    if (cachedPids) return cachedPids;
+    cachedPids = @[
         @(PID_PAT),
         @(PID_CAT),
         @(PID_TSDT),
         @(PID_IPMP),
+        @(PID_ASI),
+        // 0x05-0x0F reserved for future use (ISO/IEC 13818-1)
+        @(0x05), @(0x06), @(0x07), @(0x08), @(0x09), @(0x0A), @(0x0B),
+        @(0x0C), @(0x0D), @(0x0E), @(0x0F),
 
         // DVB
         @(PID_DVB_NIT_ST),
@@ -105,8 +110,20 @@ uint64_t const TR101290_PID_INTERVAL_MS = 5000;
 
         // ATSC
         @(PID_ATSC_PSIP),
+
+        @(PID_NULL_PACKET),
     ];
+    return cachedPids;
 }
 
++(BOOL)isDvbReservedPid:(uint16_t)pid
+{
+    return pid >= PID_DVB_NIT_ST && pid <= PID_DVB_SIT;
+}
+
++(BOOL)isAtscReservedPid:(uint16_t)pid
+{
+    return pid == PID_ATSC_PSIP;
+}
 
 @end

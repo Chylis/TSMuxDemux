@@ -80,7 +80,7 @@
                                 delegate:(id<TSMuxerDelegate> _Nullable)delegate
 {
     // Validate input settings
-    if ([PidUtil isCustomPidInvalid:settings.pmtPid]) {
+    if ([TSPidUtil isCustomPidInvalid:settings.pmtPid]) {
         [NSException raise:@"TSMuxerInvalidPidException" format:@"PMT Pid is reserved/out of valid range"];
     }
     
@@ -154,7 +154,7 @@
 
 -(void)mux:(TSAccessUnit *)accessUnit
 {
-    if ([PidUtil isCustomPidInvalid:accessUnit.pid] || accessUnit.pid == _settings.pmtPid) {
+    if ([TSPidUtil isCustomPidInvalid:accessUnit.pid] || accessUnit.pid == _settings.pmtPid) {
         [NSException raise:@"TSMuxerInvalidPidException" format:@"Pid is reserved/occupied/out of valid range"];
     }
     
