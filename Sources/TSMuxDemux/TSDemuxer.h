@@ -16,8 +16,6 @@
 #import "TR101290/TSTr101290Statistics.h"
 
 @class TSDemuxer;
-@class TSDemuxerDVBState;
-@class TSDemuxerATSCState;
 
 /**
  * DVB Mode Support:

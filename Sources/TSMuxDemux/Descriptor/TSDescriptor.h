@@ -8,7 +8,6 @@
 
 #import <Foundation/Foundation.h>
 #import <CoreMedia/CoreMedia.h>
-@class TSPacket;
 
 // Descriptor tags defined in ISO/IEC 13818-1 / ITU-T H.222.0
 typedef NS_ENUM(uint8_t, TSH2220DescriptorTag) {

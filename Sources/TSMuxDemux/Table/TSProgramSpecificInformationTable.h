@@ -6,7 +6,6 @@
 //
 
 #import <Foundation/Foundation.h>
-@class TSPacket;
 
 #define PSI_SECTION_SYNTAX_INDICATOR 0x01
 #define PSI_PRIVATE_BIT 0x00

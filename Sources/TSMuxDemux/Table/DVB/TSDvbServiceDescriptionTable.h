@@ -8,7 +8,6 @@
 
 #import "../TSProgramSpecificInformationTable.h"
 #import "../../TSConstants.h"
-@class TSPacket;
 @class TSDescriptor;
 
 @interface TSDvbServiceDescriptionEntry : NSObject
