@@ -76,6 +76,10 @@
 /// Auto-detected packet size (188 or 204). Returns 0 until detection completes.
 @property(nonatomic, readonly) NSUInteger packetSize;
 
+/// Elementary stream PIDs to process (whitelist). If nil, all ES PIDs are processed.
+/// PSI PIDs (PAT/PMT/etc) are always processed regardless of this setting.
+@property(nonatomic, copy, nullable) NSSet<NSNumber*> *esPidFilter;
+
 @property(nonatomic, readonly, nullable) TSProgramAssociationTable *pat;
 @property(nonatomic, readonly, nonnull) NSDictionary<ProgramNumber,TSProgramMapTable*> *pmts;
 

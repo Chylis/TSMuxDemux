@@ -119,6 +119,41 @@
     }
 }
 
+-(void)setEsPidFilter:(NSSet<NSNumber*>*)esPidFilter
+{
+    NSSet<NSNumber*> *oldFilter = _esPidFilter;
+    _esPidFilter = [esPidFilter copy];
+
+    if (_esPidFilter.count == 0) {
+        NSLog(@"[TSDemuxer] ES PID filter: disabled (processing all PIDs)");
+    } else {
+        NSLog(@"[TSDemuxer] ES PID filter: %@", _esPidFilter);
+    }
+
+    // Reset TR101290 state for PIDs transitioning from excluded to included
+    [self.tsPacketAnalyzer handleFilterChangeFromOldFilter:oldFilter toNewFilter:_esPidFilter];
+
+    // Remove stream builders for PIDs no longer in the filter
+    if (_esPidFilter.count > 0) {
+        NSMutableArray *pidsToRemove = [NSMutableArray array];
+        for (NSNumber *pid in self.streamBuilders) {
+            if (![_esPidFilter containsObject:pid]) {
+                [pidsToRemove addObject:pid];
+            }
+        }
+        [self.streamBuilders removeObjectsForKeys:pidsToRemove];
+    }
+}
+
+/// Returns YES if this elementary stream PID should be processed.
+-(BOOL)shouldProcessEsPid:(uint16_t)pid
+{
+    if (!_esPidFilter || _esPidFilter.count == 0) {
+        return YES;
+    }
+    return [_esPidFilter containsObject:@(pid)];
+}
+
 -(void)updatePmt:(TSProgramMapTable*)pmt
 {
     ProgramNumber programNumber = @(pmt.programNumber);
@@ -134,12 +169,15 @@
     }];
     
     for (TSElementaryStream *stream in pmt.elementaryStreams) {
+        if (![self shouldProcessEsPid:stream.pid]) {
+            continue;
+        }
+
         // Keep pid if still present in new PMT
         [pidsToRemove removeObject:@(stream.pid)];
-        
+
         TSElementaryStreamBuilder *builder = [self.streamBuilders objectForKey:@(stream.pid)];
         if (!builder) {
-            // Add builders for new pids
             builder = [[TSElementaryStreamBuilder alloc] initWithDelegate:self
                                                                       pid:stream.pid
                                                                streamType:stream.streamType
@@ -302,19 +340,19 @@
     NSArray<TSPacket*> *tsPackets = [TSPacket packetsFromChunkedTsData:chunk packetSize:_packetSize];
     for (TSPacket *tsPacket in tsPackets) {
         BOOL isPes = [self routeTsPacket:tsPacket];
-
+        uint16_t pid = tsPacket.header.pid;
+        if (isPes && ![self shouldProcessEsPid:pid]) continue;
+        
         TSTr101290AnalyzeContext *context = [[TSTr101290AnalyzeContext alloc]
                                              initWithPat:self.pat
                                              pmts:self.pmtsByPid
                                              nowMs:dataArrivalHostTimeNanos / 1000000
-                                             completedSections:self.pendingCompletedSections];
+                                             completedSections:self.pendingCompletedSections
+                                             esPidFilter:_esPidFilter];
         [self.tsPacketAnalyzer analyzeTsPacket:tsPacket context:context];
-
-        // Clear pending sections after analysis
         [self.pendingCompletedSections removeAllObjects];
-
+        
         if (isPes) {
-            uint16_t pid = tsPacket.header.pid;
             TSElementaryStreamBuilder *esBuilder = [self.streamBuilders objectForKey:@(pid)];
             [esBuilder addTsPacket:tsPacket];
         }

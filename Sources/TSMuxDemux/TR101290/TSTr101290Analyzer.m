@@ -314,6 +314,11 @@
                 continue;
             }
 
+            // Skip PIDs excluded by ES filter (avoids false positive PID errors)
+            if (context.esPidFilter.count > 0 && ![context.esPidFilter containsObject:@(es.pid)]) {
+                continue;
+            }
+
             // Exclude audio with ISO 639 audio_type > 0
             if ([self hasISO639AudioTypeGreaterThanZero:es]) {
                 continue;
@@ -391,5 +396,54 @@
     const uint64_t intervalCheckThrottleMs = 200; // Check every 200ms for efficiency
     return (nowMs - mLastIntervalCheckMs >= intervalCheckThrottleMs);
 }
+
+#pragma mark - Filter Change Handling
+
+-(void)handleFilterChangeFromOldFilter:(NSSet<NSNumber*>* _Nullable)oldFilter
+                           toNewFilter:(NSSet<NSNumber*>* _Nullable)newFilter
+{
+    // Reset state for PIDs that were excluded but will now be included,
+    // preventing false positives from stale CC and last-seen state. e.g.
+    // 1) Filter = nil, PID 256 gets CC=0,1,2
+    // 2) Filter = {257} (exclude 256), packets on 256 skipped
+    // 3) Filter = {256} (re-include), next packet has CC=7
+    // Without reset, CC jump from 2->7 would be flagged as error
+
+    NSMutableArray<NSNumber*> *pidsToReset = [NSMutableArray array];
+
+    // Reset CC validators for newly included PIDs
+    for (NSNumber *pid in mPidCcValidatorMap) {
+        if ([self wasPid:pid excludedByFilter:oldFilter] &&
+            [self willPid:pid beIncludedByFilter:newFilter]) {
+            [pidsToReset addObject:pid];
+        }
+    }
+    [mPidCcValidatorMap removeObjectsForKeys:pidsToReset];
+
+    // Reset last-seen timestamps for newly included PIDs
+    [pidsToReset removeAllObjects];
+    for (NSNumber *pid in mPidLastSeenMsMap) {
+        if ([self wasPid:pid excludedByFilter:oldFilter] &&
+            [self willPid:pid beIncludedByFilter:newFilter]) {
+            [pidsToReset addObject:pid];
+        }
+    }
+    [mPidLastSeenMsMap removeObjectsForKeys:pidsToReset];
+}
+
+-(BOOL)wasPid:(NSNumber*)pid excludedByFilter:(NSSet<NSNumber*>*)filter
+{
+    // Empty/nil filter means all PIDs were included, so none were excluded
+    if (filter.count == 0) return NO;
+    return ![filter containsObject:pid];
+}
+
+-(BOOL)willPid:(NSNumber*)pid beIncludedByFilter:(NSSet<NSNumber*>*)filter
+{
+    // Empty/nil filter means all PIDs will be included
+    if (filter.count == 0) return YES;
+    return [filter containsObject:pid];
+}
+
 @end
 

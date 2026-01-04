@@ -13,6 +13,7 @@
                                pmts:(NSDictionary<PmtPid, TSProgramMapTable*>* _Nullable)pmts
                               nowMs:(uint64_t)nowMs
                   completedSections:(NSArray<TSTr101290CompletedSection*>* _Nonnull)completedSections
+                        esPidFilter:(NSSet<NSNumber*>* _Nullable)esPidFilter
 {
     self = [super init];
     if (self) {
@@ -20,15 +21,9 @@
         _pmts = pmts;
         _nowMs = nowMs;
         _completedSections = completedSections;
+        _esPidFilter = esPidFilter;
     }
     return self;
-}
-
--(instancetype _Nonnull)initWithPat:(TSProgramAssociationTable* _Nullable)pat
-                               pmts:(NSDictionary<PmtPid, TSProgramMapTable*>* _Nullable)pmts
-                              nowMs:(uint64_t)nowMs
-{
-    return [self initWithPat:pat pmts:pmts nowMs:nowMs completedSections:@[]];
 }
 
 @end

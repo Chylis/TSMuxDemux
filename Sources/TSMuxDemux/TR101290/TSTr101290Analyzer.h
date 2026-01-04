@@ -17,4 +17,9 @@
 -(void)analyzeTsPacket:(TSPacket* _Nonnull)tsPacket
                context:(TSTr101290AnalyzeContext* _Nonnull)context;
 
+/// Resets CC and last-seen state for PIDs transitioning from excluded to included.
+/// Call when esPidFilter changes to prevent false positives from stale state.
+-(void)handleFilterChangeFromOldFilter:(NSSet<NSNumber*>* _Nullable)oldFilter
+                           toNewFilter:(NSSet<NSNumber*>* _Nullable)newFilter;
+
 @end

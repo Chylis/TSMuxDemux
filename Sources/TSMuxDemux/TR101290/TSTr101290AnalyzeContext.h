@@ -27,14 +27,14 @@ typedef NSNumber* PmtPid;
 /// A single packet can complete multiple sections.
 @property(nonatomic, strong, readonly, nonnull) NSArray<TSTr101290CompletedSection*> *completedSections;
 
+/// Elementary stream PID filter (whitelist). If nil or empty, all ES PIDs are monitored.
+/// Used to exclude filtered-out PIDs from PID_error interval checks.
+@property(nonatomic, strong, readonly, nullable) NSSet<NSNumber*> *esPidFilter;
+
 -(instancetype _Nonnull)initWithPat:(TSProgramAssociationTable* _Nullable)pat
                                pmts:(NSDictionary<PmtPid, TSProgramMapTable*>* _Nullable)pmts
                               nowMs:(uint64_t)nowMs
-                  completedSections:(NSArray<TSTr101290CompletedSection*>* _Nonnull)completedSections;
-
-/// Convenience initializer for packets without completed sections
--(instancetype _Nonnull)initWithPat:(TSProgramAssociationTable* _Nullable)pat
-                               pmts:(NSDictionary<PmtPid, TSProgramMapTable*>* _Nullable)pmts
-                              nowMs:(uint64_t)nowMs;
+                  completedSections:(NSArray<TSTr101290CompletedSection*>* _Nonnull)completedSections
+                        esPidFilter:(NSSet<NSNumber*>* _Nullable)esPidFilter;
 
 @end
