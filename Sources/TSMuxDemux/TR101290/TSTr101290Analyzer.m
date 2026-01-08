@@ -235,10 +235,8 @@
         mPidCcValidatorMap[key] = validator;
     }
     
-    NSString *error = [validator validateContinuityCounter:tsPacket];
-    if (error) {
+    if ([validator validateContinuityCounter:tsPacket]) {
         _stats.prio1.ccError++;
-        NSLog(@"[TR101290] CC error on PID %u: %@", tsPacket.header.pid, error);
     }
 }
 

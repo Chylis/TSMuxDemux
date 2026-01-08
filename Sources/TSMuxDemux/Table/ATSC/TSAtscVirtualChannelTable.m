@@ -10,6 +10,7 @@
 #import "../../TSConstants.h"
 #import "../../Descriptor/TSDescriptor.h"
 #import "../../Descriptor/ATSC/TSAtscServiceLocationDescriptor.h"
+#import "../../TSLog.h"
 
 #pragma mark - TSAtscVirtualChannel
 
@@ -80,7 +81,7 @@
 {
     NSData *data = psi.sectionDataExcludingCrc;
     if (!data || data.length < 2) {
-        NSLog(@"VCT received PSI with insufficient data");
+        TSLogWarn(@"VCT received PSI with insufficient data");
         return nil;
     }
 
@@ -119,7 +120,7 @@
         for (uint8_t i = 0; i < numChannels; i++) {
             // Each channel entry is at least 32 bytes (fixed part)
             if (offset + 32 > length) {
-                NSLog(@"VCT: insufficient data for channel %u at offset %lu", i, (unsigned long)offset);
+                TSLogWarn(@"VCT: insufficient data for channel %u at offset %lu", i, (unsigned long)offset);
                 break;
             }
 

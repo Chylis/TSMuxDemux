@@ -12,7 +12,7 @@
 
 #pragma mark - TSAccessUnit
 
-static const uint8_t TIMESTAMP_LENGTH = 5; // A timestamp (pts/dts) is a 33-bit field contained in a 5-byte container
+#define TIMESTAMP_LENGTH 5 // A timestamp (pts/dts) is a 33-bit field contained in a 5-byte container
 
 @implementation TSAccessUnit
 

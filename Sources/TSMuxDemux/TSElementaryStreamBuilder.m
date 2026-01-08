@@ -11,6 +11,7 @@
 #import "TSPesHeader.h"
 #import "TSStreamType.h"
 #import "TSContinuityChecker.h"
+#import "TSLog.h"
 #import <CoreMedia/CoreMedia.h>
 
 @interface TSElementaryStreamBuilder()
@@ -51,7 +52,7 @@
 -(void)addTsPacket:(TSPacket* _Nonnull)tsPacket
 {
     if (tsPacket.header.pid != self.pid) {
-        NSLog(@"TSElementaryStreamBuilder: PID mismatch (got %u, expected %u)", tsPacket.header.pid, self.pid);
+        TSLogWarn(@"PID mismatch (got %u, expected %u)", tsPacket.header.pid, self.pid);
         return;
     }
 
@@ -60,7 +61,7 @@
     if (ccResult == TSContinuityCheckResultGap) {
         // Packets were lost - discard in-progress data to avoid delivering corrupted access unit
         if (self.collectedData.length > 0) {
-            NSLog(@"TSElementaryStreamBuilder: CC gap on PID %u (packets lost), discarding %lu bytes",
+            TSLogWarn(@"CC gap on PID %u (packets lost), discarding %lu bytes",
                   self.pid, (unsigned long)self.collectedData.length);
         }
         self.collectedData = nil;

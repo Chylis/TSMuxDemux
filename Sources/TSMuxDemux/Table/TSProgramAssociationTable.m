@@ -7,6 +7,7 @@
 //
 
 #import "TSProgramAssociationTable.h"
+#import "../TSLog.h"
 
 #define PROGRAM_BYTE_LENGTH 4
 
@@ -88,7 +89,7 @@
 -(instancetype _Nullable)initWithPSI:(TSProgramSpecificInformationTable* _Nonnull)psi
 {
     if (!psi.sectionDataExcludingCrc || psi.sectionDataExcludingCrc.length == 0) {
-        NSLog(@"PAT received PSI with no section data");
+        TSLogWarn(@"PAT received PSI with no section data");
         return nil;
     }
     

@@ -9,6 +9,7 @@
 #import "TSPsiTableBuilder.h"
 #import "../TSPacket.h"
 #import "../TSContinuityChecker.h"
+#import "../TSLog.h"
 #import "TSProgramSpecificInformationTable.h"
 #import <CoreMedia/CoreMedia.h>
 
@@ -57,7 +58,7 @@
 -(void)addTsPacket:(TSPacket* _Nonnull)tsPacket
 {
     if (tsPacket.header.pid != self.pid) {
-        NSLog(@"TSPsiTableBuilder: PID mismatch (got %u, expected %u)", tsPacket.header.pid, self.pid);
+        TSLogWarn(@"PID mismatch (got %u, expected %u)", tsPacket.header.pid, self.pid);
         return;
     }
 
@@ -66,7 +67,7 @@
     if (ccResult == TSContinuityCheckResultGap) {
         // Packets were lost - discard in-progress table and pending sections to avoid corrupted data
         if (self.sectionInProgress || self.pendingSections.count > 0) {
-            NSLog(@"TSPsiTableBuilder: CC gap on PID 0x%04x (packets lost), discarding incomplete table 0x%02x and %lu pending sections",
+            TSLogWarn(@"CC gap on PID 0x%04x (packets lost), discarding incomplete table 0x%02x and %lu pending sections",
                   self.pid, self.sectionInProgress.tableId, (unsigned long)self.pendingSections.count);
         }
         self.sectionInProgress = nil;
@@ -85,7 +86,7 @@
         self.sectionInProgress &&
         (self.sectionInProgress.sectionDataExcludingCrc.length + PSI_CRC_LEN) < self.sectionInProgress.sectionLength;
         if (hasIncompleteTable) {
-            NSLog(@"TSPsiTableBuilder: Discarding incomplete PSI section on PID 0x%04x, table: 0x%04x, len: %u", self.pid, self.sectionInProgress.tableId, self.sectionInProgress.sectionLength);
+            TSLogDebug(@"Discarding incomplete PSI section on PID 0x%04x, table: 0x%04x, len: %u", self.pid, self.sectionInProgress.tableId, self.sectionInProgress.sectionLength);
             self.sectionInProgress = nil;
         }
         
@@ -96,7 +97,7 @@
         // first byte of the first section that is present in the payload of the transport stream packet 
         offset+=pointerField;
     } else if (!self.sectionInProgress) {
-        NSLog(@"TSPsiTableBuilder: Waiting for start of PSI PID 0x%04x, table: 0x%04x, len: %u", self.pid, self.sectionInProgress.tableId, self.sectionInProgress.sectionLength);
+        TSLogDebug(@"Waiting for start of PSI PID 0x%04x (no section in progress)", self.pid);
         return;
     }
     
@@ -167,7 +168,7 @@
     TSProgramSpecificInformationTable *existingSection = self.pendingSections.allValues.firstObject;
     if (existingSection &&
         (section.tableId != existingSection.tableId || section.versionNumber != existingSection.versionNumber)) {
-        NSLog(@"TSPsiTableBuilder: New table version on PID 0x%04x (tableId=0x%02x, version=%u), discarding %lu pending sections",
+        TSLogDebug(@"New table version on PID 0x%04x (tableId=0x%02x, version=%u), discarding %lu pending sections",
               self.pid, section.tableId, section.versionNumber, (unsigned long)self.pendingSections.count);
         [self.pendingSections removeAllObjects];
     }

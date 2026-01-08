@@ -7,6 +7,7 @@
 //
 
 #import "TSScte35CueIdentifierDescriptor.h"
+#import "../../TSLog.h"
 
 @implementation TSScte35CueIdentifierDescriptor
 
@@ -26,7 +27,7 @@
             remainingLength--;
             _cueStreamType = cueStreamType;
         } else {
-            NSLog(@"Received cue identifier description with no payload");
+            TSLogWarn(@"Received cue identifier descriptor with no payload");
         }
     }
     

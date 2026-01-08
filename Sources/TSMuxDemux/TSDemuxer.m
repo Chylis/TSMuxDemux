@@ -9,6 +9,7 @@
 #import "TSDemuxer.h"
 #import "TSConstants.h"
 #import "TSPacket.h"
+#import "TSLog.h"
 #import "TR101290/TSTr101290Analyzer.h"
 #import "TR101290/TSTr101290AnalyzeContext.h"
 #import "TR101290/TSTr101290CompletedSection.h"
@@ -125,9 +126,9 @@
     _esPidFilter = [esPidFilter copy];
 
     if (_esPidFilter.count == 0) {
-        NSLog(@"[TSDemuxer] ES PID filter: disabled (processing all PIDs)");
+        TSLogDebug(@"ES PID filter: disabled (processing all PIDs)");
     } else {
-        NSLog(@"[TSDemuxer] ES PID filter: %@", _esPidFilter);
+        TSLogDebug(@"ES PID filter: %@", _esPidFilter);
     }
 
     // Reset TR101290 state for PIDs transitioning from excluded to included
@@ -268,9 +269,9 @@
         return NO;
     }
     if (pid == PID_CAT)        { return NO; }  // TODO: Parse CAT
-    if (pid == PID_TSDT)       { NSLog(@"Received TSDT"); return NO; }  // TODO: Parse
-    if (pid == PID_IPMP)       { NSLog(@"Received IPMP"); return NO; }  // TODO: Parse
-    if (pid == PID_ASI)        { NSLog(@"Received ASI"); return NO; }   // TODO: Parse
+    if (pid == PID_TSDT)       { TSLogDebug(@"Received TSDT"); return NO; }  // TODO: Parse
+    if (pid == PID_IPMP)       { TSLogDebug(@"Received IPMP"); return NO; }  // TODO: Parse
+    if (pid == PID_ASI)        { TSLogDebug(@"Received ASI"); return NO; }   // TODO: Parse
     if (pid == PID_NULL_PACKET) { return NO; }
 
     // DVB mode
@@ -283,7 +284,7 @@
             return NO;  // Other DVB reserved PIDs - not yet implemented
         }
         if ([TSPidUtil isAtscReservedPid:pid]) {
-            NSLog(@"[TSDemuxer] WARN: Received ATSC PID 0x%04X in DVB mode - possible mode mismatch", pid);
+            TSLogWarn(@"Received ATSC PID 0x%04X in DVB mode - possible mode mismatch", pid);
             return NO;
         }
     }
@@ -295,7 +296,7 @@
             return NO;
         }
         if ([TSPidUtil isDvbReservedPid:pid]) {
-            NSLog(@"[TSDemuxer] WARN: Received DVB PID 0x%04X in ATSC mode - possible mode mismatch", pid);
+            TSLogWarn(@"Received DVB PID 0x%04X in ATSC mode - possible mode mismatch", pid);
             return NO;
         }
     }
@@ -334,7 +335,7 @@
     // Auto-detect packet size on first call
     if (_packetSize == 0) {
         _packetSize = [self detectPacketSizeFromLength:chunk.length];
-        NSLog(@"TSDemuxer: Detected %lu-byte TS packets", (unsigned long)_packetSize);
+        TSLogInfo(@"Detected %lu-byte TS packets", (unsigned long)_packetSize);
     }
 
     NSArray<TSPacket*> *tsPackets = [TSPacket packetsFromChunkedTsData:chunk packetSize:_packetSize];
@@ -390,7 +391,7 @@
         // TODO Parse...
     }
     else {
-        NSLog(@"Received unhandled PSI table pid: %u, tableId: 0x%02X", builder.pid, table.tableId);
+        TSLogDebug(@"Received unhandled PSI table pid: %u, tableId: 0x%02X", builder.pid, table.tableId);
     }
 }
 

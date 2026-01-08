@@ -9,6 +9,7 @@
 #import "../TSPacket.h"
 #import "../TSConstants.h"
 #import "../TSCrc.h"
+#import "../TSLog.h"
 
 @implementation TSProgramSpecificInformationTable
 
@@ -67,7 +68,7 @@
 {
     
     if (sectionLength > 1021) {
-        NSLog(@"Invalid PSI section length: %u", sectionLength);
+        TSLogWarnC(@"Invalid PSI section length: %u", sectionLength);
         return nil;
     }
     

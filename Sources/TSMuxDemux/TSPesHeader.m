@@ -9,6 +9,7 @@
 #import "TSPesHeader.h"
 #import "TSPacket.h"
 #import "TSConstants.h"
+#import "TSLog.h"
 
 static const uint8_t TIMESTAMP_LENGTH = 5;
 
@@ -119,7 +120,7 @@ static inline BOOL streamIdHasNoOptionalHeader(uint8_t streamId) {
             pts = (ptsBits32To30 << 30) | (ptsBits29To22 << 22) | (ptsBits21To15 << 15) | (ptsBits14To7 << 7) | ptsBits6To0;
             ptsValid = YES;
         } else {
-            NSLog(@"TSPesHeader: Invalid PTS marker bits or prefix (expected 0x%X, got 0x%X, markers: %d%d%d)",
+            TSLogWarn(@"Invalid PTS marker bits or prefix (expected 0x%X, got 0x%X, markers: %d%d%d)",
                   expectedPrefix, actualPrefix,
                   (ptsBytes[0] & 0x01), (ptsBytes[2] & 0x01) >> 0, (ptsBytes[4] & 0x01) >> 0);
         }
@@ -141,7 +142,7 @@ static inline BOOL streamIdHasNoOptionalHeader(uint8_t streamId) {
                 dts = (dtsBits32To30 << 30) | (dtsBits29To22 << 22) | (dtsBits21To15 << 15) | (dtsBits14To7 << 7) | dtsBits6To0;
                 dtsValid = YES;
             } else {
-                NSLog(@"TSPesHeader: Invalid DTS marker bits or prefix (expected 0x1, got 0x%X, markers: %d%d%d)",
+                TSLogWarn(@"Invalid DTS marker bits or prefix (expected 0x1, got 0x%X, markers: %d%d%d)",
                       dtsPrefix,
                       (dtsBytes[0] & 0x01), (dtsBytes[2] & 0x01) >> 0, (dtsBytes[4] & 0x01) >> 0);
             }

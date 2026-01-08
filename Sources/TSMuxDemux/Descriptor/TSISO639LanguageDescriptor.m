@@ -8,6 +8,7 @@
 
 #import "TSISO639LanguageDescriptor.h"
 #import "../TSFourCharCodeUtil.h"
+#import "../TSLog.h"
 
 @interface TSISO639LanguageDescriptorEntry()
 -(instancetype)initWithLanguageCode:(NSData* _Nonnull)languageCode
@@ -132,7 +133,7 @@
                 _entries = entries;
             }
         } else {
-            NSLog(@"Received ISO639LanguageDescriptor with no payload");
+            TSLogWarn(@"Received ISO639LanguageDescriptor with no payload");
         }
     }
     

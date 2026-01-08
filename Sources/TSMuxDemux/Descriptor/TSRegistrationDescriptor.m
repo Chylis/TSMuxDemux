@@ -8,6 +8,7 @@
 
 #import "TSRegistrationDescriptor.h"
 #import "../TSFourCharCodeUtil.h"
+#import "../TSLog.h"
 
 @implementation TSRegistrationDescriptor
 
@@ -33,7 +34,7 @@
                 remainingLength=0;
             }
         } else {
-            NSLog(@"Received registration description with no payload");
+            TSLogWarn(@"Received registration descriptor with no payload");
         }
     }
     

@@ -8,6 +8,7 @@
 
 #import "TSDvbServiceDescriptor.h"
 #import "../../TSStringEncodingUtil.h"
+#import "../../TSLog.h"
 
 @implementation TSDvbServiceDescriptor
 
@@ -47,7 +48,7 @@
                 remainingLength-=serviceNameLength;
             }
         } else {
-            NSLog(@"Received DVB service descriptor with no payload");
+            TSLogWarn(@"Received DVB service descriptor with no payload");
         }
     }
     

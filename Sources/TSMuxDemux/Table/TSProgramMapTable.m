@@ -10,6 +10,7 @@
 #import "../TSElementaryStream.h"
 #import "../Descriptor/TSDescriptor.h"
 #import "../Descriptor/TSRegistrationDescriptor.h"
+#import "../TSLog.h"
 
 #define ELEMENTARY_STREAM_BYTE_LENGTH 5
 
@@ -138,7 +139,7 @@
 -(instancetype _Nullable)initWithPSI:(TSProgramSpecificInformationTable* _Nonnull)psi
 {
     if (!psi.sectionDataExcludingCrc || psi.sectionDataExcludingCrc.length == 0) {
-        NSLog(@"PMT received PSI with no section data");
+        TSLogWarn(@"PMT received PSI with no section data");
         return nil;
     }
     

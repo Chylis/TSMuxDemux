@@ -9,6 +9,7 @@
 #import "TSPacket.h"
 #import "TSConstants.h"
 #import "TSElementaryStream.h"
+#import "TSLog.h"
 
 
 #pragma mark - TSPacketHeader
@@ -41,7 +42,7 @@
 +(instancetype)initWithTsPacketData:(NSData*)tsPacketData
 {
     if (tsPacketData.length < TS_PACKET_HEADER_SIZE) {
-        NSLog(@"Failed parsing ts-header - too few bytes: %lu", (unsigned long)tsPacketData.length);
+        TSLogError(@"Failed parsing ts-header - too few bytes: %lu", (unsigned long)tsPacketData.length);
         return nil;
     }
     
@@ -361,7 +362,7 @@
     + self.payload.length;
     
     if (size != TS_PACKET_SIZE_188) {
-        NSLog(@"TSPacket: Invalid packet size: %lu", (unsigned long)size);
+        TSLogError(@"Invalid packet size: %lu", (unsigned long)size);
         return nil;
     }
     
@@ -372,12 +373,12 @@
                                     packetSize:(NSUInteger)packetSize
 {
     if (packetSize != TS_PACKET_SIZE_188 && packetSize != TS_PACKET_SIZE_204) {
-        NSLog(@"Invalid packet size: %lu (expected %u or %u)",
+        TSLogError(@"Invalid packet size: %lu (expected %u or %u)",
               (unsigned long)packetSize, TS_PACKET_SIZE_188, TS_PACKET_SIZE_204);
         return @[];
     }
     if (chunk.length % packetSize != 0) {
-        NSLog(@"Received non-integer number of ts packets: %lu (expected multiple of %lu)",
+        TSLogError(@"Received non-integer number of ts packets: %lu (expected multiple of %lu)",
               (unsigned long)chunk.length, (unsigned long)packetSize);
         return @[];
     }

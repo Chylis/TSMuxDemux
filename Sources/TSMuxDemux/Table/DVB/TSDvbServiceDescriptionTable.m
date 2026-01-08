@@ -10,6 +10,7 @@
 #import "../../TSElementaryStream.h"
 #import "../../Descriptor/TSDescriptor.h"
 #import "../../Descriptor/TSRegistrationDescriptor.h"
+#import "../../TSLog.h"
 
 @interface TSDvbServiceDescriptionEntry()
 -(instancetype)initWithServiceId:(uint16_t)serviceId
@@ -120,7 +121,7 @@
 -(instancetype _Nullable)initWithPSI:(TSProgramSpecificInformationTable* _Nonnull)psi
 {
     if (!psi.sectionDataExcludingCrc || psi.sectionDataExcludingCrc.length == 0) {
-        NSLog(@"SDT received PSI with no section data");
+        TSLogWarn(@"SDT received PSI with no section data");
         return nil;
     }
     
