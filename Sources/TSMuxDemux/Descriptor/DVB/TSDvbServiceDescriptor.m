@@ -9,49 +9,58 @@
 #import "TSDvbServiceDescriptor.h"
 #import "../../TSStringEncodingUtil.h"
 #import "../../TSLog.h"
+#import "../../TSBitReader.h"
 
 @implementation TSDvbServiceDescriptor
 
--(instancetype _Nonnull)initWithTag:(uint8_t)tag
-                            payload:(NSData* _Nonnull)payload
-                             length:(NSUInteger)length
+-(instancetype _Nullable)initWithTag:(uint8_t)tag
+                             payload:(NSData *)payload
+                              length:(NSUInteger)length
 {
     self = [super initWithTag:tag length:length];
     if (self) {
         if (payload.length && length > 0) {
-            NSUInteger offset = 0;
-            NSUInteger remainingLength = length;
-            
-            uint8_t serviceType = 0x0;
-            [payload getBytes:&serviceType range:NSMakeRange(offset, 1)];
-            offset++;
-            remainingLength--;
-            _serviceType = serviceType;
-            
-            uint8_t serviceProviderNameLength = 0x0;
-            [payload getBytes:&serviceProviderNameLength range:NSMakeRange(offset, 1)];
-            offset++;
-            remainingLength--;
-            if (serviceProviderNameLength > 0 && remainingLength >= serviceProviderNameLength) {
-                _serviceProviderName = [payload subdataWithRange:NSMakeRange(offset, serviceProviderNameLength)];
-                offset+=serviceProviderNameLength;
-                remainingLength-=serviceProviderNameLength;
+            TSBitReader reader = TSBitReaderMake(payload);
+
+            _serviceType = TSBitReaderReadUInt8(&reader);
+            if (reader.error) {
+                TSLogWarn(@"DVB service descriptor truncated: missing service_type");
+                return nil;
             }
-            
-            uint8_t serviceNameLength = 0x0;
-            [payload getBytes:&serviceNameLength range:NSMakeRange(offset, 1)];
-            offset++;
-            remainingLength--;
-            if (serviceNameLength > 0 && remainingLength >= serviceNameLength) {
-                _serviceName = [payload subdataWithRange:NSMakeRange(offset, serviceNameLength)];
-                offset+=serviceNameLength;
-                remainingLength-=serviceNameLength;
+
+            uint8_t serviceProviderNameLength = TSBitReaderReadUInt8(&reader);
+            if (reader.error) {
+                TSLogWarn(@"DVB service descriptor truncated: missing service_provider_name_length");
+                return nil;
+            }
+            if (serviceProviderNameLength > 0) {
+                _serviceProviderName = [TSBitReaderReadData(&reader, serviceProviderNameLength) copy];
+                if (reader.error) {
+                    TSLogWarn(@"DVB service descriptor truncated: service_provider_name needs %u bytes",
+                              serviceProviderNameLength);
+                    return nil;
+                }
+            }
+
+            uint8_t serviceNameLength = TSBitReaderReadUInt8(&reader);
+            if (reader.error) {
+                TSLogWarn(@"DVB service descriptor truncated: missing service_name_length");
+                return nil;
+            }
+            if (serviceNameLength > 0) {
+                _serviceName = [TSBitReaderReadData(&reader, serviceNameLength) copy];
+                if (reader.error) {
+                    TSLogWarn(@"DVB service descriptor truncated: service_name needs %u bytes",
+                              serviceNameLength);
+                    return nil;
+                }
             }
         } else {
             TSLogWarn(@"Received DVB service descriptor with no payload");
+            return nil;
         }
     }
-    
+
     return self;
 }
 

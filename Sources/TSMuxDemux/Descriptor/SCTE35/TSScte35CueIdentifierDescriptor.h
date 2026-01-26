@@ -24,8 +24,8 @@ typedef NS_ENUM(uint8_t, TSScte35CueStreamType) {
 
 @property(nonatomic, readonly) uint8_t cueStreamType;
 
--(instancetype _Nonnull)initWithTag:(uint8_t)tag
-                            payload:(NSData* _Nonnull)payload
-                             length:(NSUInteger)length;
+-(instancetype _Nullable)initWithTag:(uint8_t)tag
+                             payload:(NSData * _Nullable)payload
+                              length:(NSUInteger)length;
 
 @end

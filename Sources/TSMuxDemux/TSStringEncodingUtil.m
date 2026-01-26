@@ -4,6 +4,8 @@
 //
 
 #import "TSStringEncodingUtil.h"
+#import "TSBitReader.h"
+#import "TSLog.h"
 #import <CoreFoundation/CoreFoundation.h>
 
 @implementation TSStringEncodingUtil
@@ -26,11 +28,16 @@
     if (!data || data.length == 0) {
         return nil;
     }
-    
+
+    TSBitReader reader = TSBitReaderMake(data);
+    uint8_t firstByte = TSBitReaderReadUInt8(&reader);
+    if (reader.error) {
+        TSLogWarn(@"DVB string encoding: failed to read first byte");
+        return nil;
+    }
+
     *ioOffset += 1;
 
-    const unsigned char *bytes = [data bytes];
-    uint8_t firstByte = bytes[0];
     switch (firstByte) {
         case 0x01:// ISO/IEC 8859-5
             return @(CFStringConvertEncodingToNSStringEncoding(kCFStringEncodingISOLatinCyrillic));
@@ -82,11 +89,16 @@
     if (!data || data.length < 3) {
         return nil;
     }
-    
-    uint16_t bytes2And3 = 0x0;
-    [data getBytes:&bytes2And3 range:NSMakeRange(1, 2)];
-    uint16_t encodingID = CFSwapInt16BigToHost(bytes2And3);
-    
+
+    // Read bytes at offset 1 (first byte was already processed by caller)
+    TSBitReader reader = TSBitReaderMake(data);
+    TSBitReaderSkip(&reader, 1);  // Skip first byte (0x10)
+    uint16_t encodingID = TSBitReaderReadUInt16BE(&reader);
+    if (reader.error) {
+        TSLogWarn(@"DVB string encoding: failed to read ISO 8859 encoding ID");
+        return nil;
+    }
+
     *ioOffset += 2;
     
     switch (encodingID) {

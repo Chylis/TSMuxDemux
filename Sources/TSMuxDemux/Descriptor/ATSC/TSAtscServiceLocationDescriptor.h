@@ -36,8 +36,8 @@
 /// Elementary stream elements (audio, video, data PIDs)
 @property(nonatomic, readonly, nonnull) NSArray<TSAtscServiceLocationElement*> *elements;
 
--(instancetype _Nonnull)initWithTag:(uint8_t)tag
-                            payload:(NSData * _Nullable)payload
-                             length:(NSUInteger)length;
+-(instancetype _Nullable)initWithTag:(uint8_t)tag
+                             payload:(NSData * _Nullable)payload
+                              length:(NSUInteger)length;
 
 @end

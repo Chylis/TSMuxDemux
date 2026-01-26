@@ -10,6 +10,7 @@
 #import "../TSPacket.h"
 #import "../TSContinuityChecker.h"
 #import "../TSLog.h"
+#import "../TSBitReader.h"
 #import "TSProgramSpecificInformationTable.h"
 #import <CoreMedia/CoreMedia.h>
 
@@ -90,18 +91,32 @@
             self.sectionInProgress = nil;
         }
         
-        uint8_t pointerField = 0x0;
-        [tsPacket.payload getBytes:&pointerField range:NSMakeRange(0, 1)];
+        TSBitReader ptrReader = TSBitReaderMake(tsPacket.payload);
+        uint8_t pointerField = TSBitReaderReadUInt8(&ptrReader);
+        if (ptrReader.error) {
+            TSLogWarn(@"PSI packet too short for pointer field on PID 0x%04x", self.pid);
+            return;
+        }
         offset++;
         // The pointer gives the number of bytes, immediately following the pointer_field until the
-        // first byte of the first section that is present in the payload of the transport stream packet 
+        // first byte of the first section that is present in the payload of the transport stream packet
+        if (offset + pointerField > tsPacket.payload.length) {
+            TSLogWarn(@"PSI pointer field overflow on PID 0x%04x (pointer=%u, remaining=%lu)",
+                      self.pid, pointerField, (unsigned long)(tsPacket.payload.length - offset));
+            return;
+        }
         offset+=pointerField;
     } else if (!self.sectionInProgress) {
         TSLogDebug(@"Waiting for start of PSI PID 0x%04x (no section in progress)", self.pid);
         return;
     }
     
-    while (offset < tsPacket.payload.length) {
+    // PSI section header requires 3 bytes minimum (table_id + section_length)
+    while (offset + 3 <= tsPacket.payload.length || self.sectionInProgress) {
+        // If we're continuing a section in progress, we don't need to parse the header
+        if (!self.sectionInProgress && offset + 3 > tsPacket.payload.length) {
+            break;  // Not enough bytes for a new section header
+        }
         TSProgramSpecificInformationTable *table = self.sectionInProgress ?:
         [self parseTableNoSectionData:tsPacket.payload atOffset:&offset];
         if (!table) {
@@ -109,11 +124,23 @@
         }
         
         const NSUInteger remainingBytesInPacket = tsPacket.payload.length - offset;
+        if (remainingBytesInPacket == 0) {
+            // No more data in this packet, section continues in next packet
+            break;
+        }
         NSUInteger remainingBytesInTable = table.sectionLength;
         if (self.sectionInProgress) {
             remainingBytesInTable -= self.sectionInProgress.sectionDataExcludingCrc.length;
         }
         
+        // Validate section_length is at least PSI_CRC_LEN to prevent unsigned underflow
+        if (remainingBytesInTable < PSI_CRC_LEN) {
+            TSLogError(@"Invalid PSI section_length %lu (less than CRC size %d)",
+                       (unsigned long)remainingBytesInTable, PSI_CRC_LEN);
+            self.sectionInProgress = nil;
+            break;
+        }
+
         BOOL tableFitsInCurrentPacket = remainingBytesInTable < remainingBytesInPacket;
         if (tableFitsInCurrentPacket) {
             NSData *readSectionDataNoCrc = [tsPacket.payload subdataWithRange:
@@ -128,11 +155,21 @@
                 sectionDataExcludingCrc = [NSData dataWithData:collectedData];
             }
             table.sectionDataExcludingCrc = sectionDataExcludingCrc;
-            
-            uint32_t extractedCrc;
-            [tsPacket.payload getBytes:&extractedCrc range:NSMakeRange(offset, PSI_CRC_LEN)];
-            offset+=PSI_CRC_LEN;
-            uint32_t crc = CFSwapInt32BigToHost(extractedCrc);
+
+            if (offset + PSI_CRC_LEN > tsPacket.payload.length) {
+                TSLogWarn(@"PSI: insufficient bytes for CRC on PID 0x%04X", self.pid);
+                self.sectionInProgress = nil;
+                break;
+            }
+            TSBitReader crcReader = TSBitReaderMakeWithBytes(
+                (const uint8_t *)tsPacket.payload.bytes + offset, PSI_CRC_LEN);
+            uint32_t crc = TSBitReaderReadUInt32BE(&crcReader);
+            if (crcReader.error) {
+                TSLogWarn(@"PSI: failed to read CRC on PID 0x%04X", self.pid);
+                self.sectionInProgress = nil;
+                break;
+            }
+            offset += PSI_CRC_LEN;
             table.crc = crc;
 
             [self deliverCompletedSection:table];
@@ -195,6 +232,15 @@
     // Byte 4: lastSectionNumber
     // Bytes 5+: table-specific payload
 
+    const NSUInteger kHeaderSize = 5;  // Common PSI section header size
+
+    // Validate section0 has enough data for header
+    if (section0.sectionDataExcludingCrc.length < 3) {
+        TSLogWarn(@"Section 0 too short for aggregation: %lu bytes",
+                  (unsigned long)section0.sectionDataExcludingCrc.length);
+        return nil;
+    }
+
     NSMutableData *aggregatedData = [NSMutableData data];
 
     // Copy first 3 bytes from section 0 (tableIdExtension + version/flags)
@@ -208,10 +254,9 @@
     // Concatenate table-specific payload from all sections in order
     for (uint8_t i = 0; i <= section0.lastSectionNumber; i++) {
         TSProgramSpecificInformationTable *section = self.pendingSections[@(i)];
-        NSUInteger payloadStart = 5;
-        NSUInteger payloadLength = section.sectionDataExcludingCrc.length - payloadStart;
-        if (payloadLength > 0) {
-            NSData *payload = [section.sectionDataExcludingCrc subdataWithRange:NSMakeRange(payloadStart, payloadLength)];
+        if (section.sectionDataExcludingCrc.length > kHeaderSize) {
+            NSUInteger payloadLength = section.sectionDataExcludingCrc.length - kHeaderSize;
+            NSData *payload = [section.sectionDataExcludingCrc subdataWithRange:NSMakeRange(kHeaderSize, payloadLength)];
             [aggregatedData appendData:payload];
         }
     }
@@ -232,26 +277,33 @@
 -(TSProgramSpecificInformationTable * _Nullable)parseTableNoSectionData:(NSData *)data
                                                                atOffset:(NSUInteger*)ioOffset
 {
-    uint8_t tableId = 0x0;
-    [data getBytes:&tableId range:NSMakeRange(*ioOffset, 1)];
-    (*ioOffset)++;
-    
-    BOOL isStuffing = tableId == 0xFF;
-    if (isStuffing) {
+    TSBitReader reader = TSBitReaderMakeWithBytes(
+        (const uint8_t *)data.bytes + *ioOffset, data.length - *ioOffset);
+
+    uint8_t tableId = TSBitReaderReadUInt8(&reader);
+    if (reader.error) {
+        TSLogWarn(@"PSI: failed to read table ID on PID 0x%04X", self.pid);
         return nil;
     }
-    
-    uint8_t byte2 = 0x0;
-    [data getBytes:&byte2 range:NSMakeRange(*ioOffset, 1)];
-    (*ioOffset)++;
-    
-    uint8_t byte3 = 0x0;
-    [data getBytes:&byte3 range:NSMakeRange(*ioOffset, 1)];
-    (*ioOffset)++;
-    
+
+    BOOL isStuffing = tableId == 0xFF;
+    if (isStuffing) {
+        (*ioOffset)++;
+        return nil;
+    }
+
+    uint8_t byte2 = TSBitReaderReadUInt8(&reader);
+    uint8_t byte3 = TSBitReaderReadUInt8(&reader);
+    if (reader.error) {
+        TSLogWarn(@"PSI: section header truncated on PID 0x%04X (tableId=0x%02X)", self.pid, tableId);
+        return nil;
+    }
+
+    (*ioOffset) += 3;
+
     const uint8_t sectionSyntaxIndicator = (byte2 & 0x80) >> 7;
     const uint16_t sectionLength = ((byte2 & 0x03) << 8) | (uint16_t)byte3;
-    
+
     TSProgramSpecificInformationTable *section = [[TSProgramSpecificInformationTable alloc]
                                                   initWithTableId:tableId
                                                   sectionSyntaxIndicator:sectionSyntaxIndicator

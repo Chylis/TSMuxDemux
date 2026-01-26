@@ -10,6 +10,7 @@
 #import "TSPacket.h"
 #import "TSConstants.h"
 #import "TSLog.h"
+#import "TSBitReader.h"
 
 static const uint8_t TIMESTAMP_LENGTH = 5;
 
@@ -31,6 +32,39 @@ static inline BOOL streamIdHasNoOptionalHeader(uint8_t streamId) {
     }
 }
 
+/// Parses a 33-bit PTS/DTS timestamp from 5 bytes.
+/// Format: 4-bit prefix | 3 bits (32-30) | marker | 15 bits (29-15) | marker | 15 bits (14-0) | marker
+/// @param reader Bit reader positioned at start of timestamp bytes.
+/// @param expectedPrefix Expected 4-bit prefix (0x2 for PTS-only, 0x3 for PTS with DTS, 0x1 for DTS)
+/// @param outTimestamp Output for the 33-bit timestamp value.
+/// @return YES if parsing succeeded with valid markers and prefix.
+static inline BOOL parseTimestamp(TSBitReader *reader, uint8_t expectedPrefix, uint64_t *outTimestamp) {
+    if (!TSBitReaderHasBits(reader, 40)) {  // 5 bytes = 40 bits
+        return NO;
+    }
+
+    uint8_t prefix = TSBitReaderReadBits(reader, 4);
+    uint64_t bits32_30 = TSBitReaderReadBits(reader, 3);
+    uint8_t marker1 = TSBitReaderReadBits(reader, 1);
+    uint64_t bits29_15 = TSBitReaderReadBits(reader, 15);
+    uint8_t marker2 = TSBitReaderReadBits(reader, 1);
+    uint64_t bits14_0 = TSBitReaderReadBits(reader, 15);
+    uint8_t marker3 = TSBitReaderReadBits(reader, 1);
+
+    if (reader->error) {
+        return NO;
+    }
+
+    if (prefix != expectedPrefix || marker1 != 1 || marker2 != 1 || marker3 != 1) {
+        TSLogWarnC(@"Invalid timestamp: prefix=0x%X (expected 0x%X), markers=%d%d%d",
+                   prefix, expectedPrefix, marker1, marker2, marker3);
+        return NO;
+    }
+
+    *outTimestamp = (bits32_30 << 30) | (bits29_15 << 15) | bits14_0;
+    return YES;
+}
+
 @implementation TSPesHeader
 
 + (instancetype _Nullable)parseFromPacket:(TSPacket * _Nonnull)packet
@@ -42,22 +76,22 @@ static inline BOOL streamIdHasNoOptionalHeader(uint8_t streamId) {
         return nil;
     }
 
+    TSBitReader reader = TSBitReaderMake(payload);
+
     // Validate PES start code (0x00 0x00 0x01)
-    uint8_t startCode[3];
-    [payload getBytes:startCode range:NSMakeRange(0, 3)];
-    if (startCode[0] != 0x00 || startCode[1] != 0x00 || startCode[2] != 0x01) {
+    if (TSBitReaderReadUInt8(&reader) != 0x00 ||
+        TSBitReaderReadUInt8(&reader) != 0x00 ||
+        TSBitReaderReadUInt8(&reader) != 0x01) {
         return nil;
     }
 
-    // Bytes 4-5: PES packet length (0 = unbounded, common for video)
-    uint16_t pesPacketLength = 0;
-    [payload getBytes:&pesPacketLength range:NSMakeRange(4, 2)];
-    pesPacketLength = CFSwapInt16BigToHost(pesPacketLength);
+    // Byte 4: stream_id
+    const uint8_t streamId = TSBitReaderReadUInt8(&reader);
+
+    // Bytes 5-6: PES packet length (0 = unbounded, common for video)
+    const uint16_t pesPacketLength = TSBitReaderReadUInt16BE(&reader);
 
     // Check stream_id for alternate PES format (no optional header, payload at byte 6)
-    uint8_t streamId = 0;
-    [payload getBytes:&streamId range:NSMakeRange(3, 1)];
-
     if (streamIdHasNoOptionalHeader(streamId)) {
         TSPesHeader *header = [[TSPesHeader alloc] init];
         header->_pts = kCMTimeInvalid;
@@ -73,14 +107,21 @@ static inline BOOL streamIdHasNoOptionalHeader(uint8_t streamId) {
         return nil;
     }
 
-    uint8_t byte8 = 0x00;
-    [payload getBytes:&byte8 range:NSMakeRange(7, 1)];
-    const BOOL hasPts = (byte8 & 0x80) != 0x00;
-    const BOOL hasDts = (byte8 & 0x40) != 0x00;
+    // Byte 7: flags1 (skip - contains marker bits and scrambling control)
+    TSBitReaderSkip(&reader, 1);
 
-    uint8_t byte9 = 0x00;
-    [payload getBytes:&byte9 range:NSMakeRange(8, 1)];
-    const uint8_t pesHeaderDataLength = byte9;
+    // Byte 8: flags2 - PTS/DTS flags are the top 2 bits
+    const BOOL hasPts = TSBitReaderReadBits(&reader, 1) != 0;
+    const BOOL hasDts = TSBitReaderReadBits(&reader, 1) != 0;
+    TSBitReaderSkipBits(&reader, 6);  // Skip remaining flags
+
+    // Byte 9: PES header data length
+    const uint8_t pesHeaderDataLength = TSBitReaderReadUInt8(&reader);
+
+    if (reader.error) {
+        TSLogWarn(@"PES header truncated while reading header fields");
+        return nil;
+    }
 
     // Validate payload has enough bytes for header + declared header data
     const NSUInteger payloadOffset = 9 + pesHeaderDataLength;
@@ -102,50 +143,13 @@ static inline BOOL streamIdHasNoOptionalHeader(uint8_t streamId) {
     uint64_t dts = 0;
 
     if (hasPts) {
-        uint8_t ptsBytes[5];
-        [payload getBytes:ptsBytes range:NSMakeRange(9, TIMESTAMP_LENGTH)];
-
-        // Validate marker bits (bit 0 of bytes 0, 2, 4 must be 1)
-        // Validate prefix: 0010 for PTS-only, 0011 for PTS+DTS
-        uint8_t expectedPrefix = hasDts ? 0x3 : 0x2;
-        uint8_t actualPrefix = (ptsBytes[0] >> 4) & 0x0F;
-        BOOL markersOk = (ptsBytes[0] & 0x01) && (ptsBytes[2] & 0x01) && (ptsBytes[4] & 0x01);
-
-        if (actualPrefix == expectedPrefix && markersOk) {
-            uint64_t ptsBits32To30 = (ptsBytes[0] >> 1) & 0x7;
-            uint64_t ptsBits29To22 = ptsBytes[1];
-            uint64_t ptsBits21To15 = (ptsBytes[2] >> 1) & 0x7F;
-            uint64_t ptsBits14To7 = ptsBytes[3];
-            uint64_t ptsBits6To0 = (ptsBytes[4] >> 1) & 0x7F;
-            pts = (ptsBits32To30 << 30) | (ptsBits29To22 << 22) | (ptsBits21To15 << 15) | (ptsBits14To7 << 7) | ptsBits6To0;
-            ptsValid = YES;
-        } else {
-            TSLogWarn(@"Invalid PTS marker bits or prefix (expected 0x%X, got 0x%X, markers: %d%d%d)",
-                  expectedPrefix, actualPrefix,
-                  (ptsBytes[0] & 0x01), (ptsBytes[2] & 0x01) >> 0, (ptsBytes[4] & 0x01) >> 0);
-        }
+        // PTS prefix: 0010 for PTS-only, 0011 for PTS+DTS
+        uint8_t expectedPtsPrefix = hasDts ? 0x3 : 0x2;
+        ptsValid = parseTimestamp(&reader, expectedPtsPrefix, &pts);
 
         if (hasDts) {
-            uint8_t dtsBytes[5];
-            [payload getBytes:dtsBytes range:NSMakeRange(9 + TIMESTAMP_LENGTH, TIMESTAMP_LENGTH)];
-
-            // Validate marker bits and prefix (0001 for DTS)
-            uint8_t dtsPrefix = (dtsBytes[0] >> 4) & 0x0F;
-            BOOL dtsMarkersOk = (dtsBytes[0] & 0x01) && (dtsBytes[2] & 0x01) && (dtsBytes[4] & 0x01);
-
-            if (dtsPrefix == 0x1 && dtsMarkersOk) {
-                uint64_t dtsBits32To30 = (dtsBytes[0] >> 1) & 0x7;
-                uint64_t dtsBits29To22 = dtsBytes[1];
-                uint64_t dtsBits21To15 = (dtsBytes[2] >> 1) & 0x7F;
-                uint64_t dtsBits14To7 = dtsBytes[3];
-                uint64_t dtsBits6To0 = (dtsBytes[4] >> 1) & 0x7F;
-                dts = (dtsBits32To30 << 30) | (dtsBits29To22 << 22) | (dtsBits21To15 << 15) | (dtsBits14To7 << 7) | dtsBits6To0;
-                dtsValid = YES;
-            } else {
-                TSLogWarn(@"Invalid DTS marker bits or prefix (expected 0x1, got 0x%X, markers: %d%d%d)",
-                      dtsPrefix,
-                      (dtsBytes[0] & 0x01), (dtsBytes[2] & 0x01) >> 0, (dtsBytes[4] & 0x01) >> 0);
-            }
+            // DTS prefix: 0001
+            dtsValid = parseTimestamp(&reader, 0x1, &dts);
         }
     }
 

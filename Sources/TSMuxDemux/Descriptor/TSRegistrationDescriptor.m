@@ -9,35 +9,36 @@
 #import "TSRegistrationDescriptor.h"
 #import "../TSFourCharCodeUtil.h"
 #import "../TSLog.h"
+#import "../TSBitReader.h"
 
 @implementation TSRegistrationDescriptor
 
--(instancetype _Nonnull)initWithTag:(uint8_t)tag
-                            payload:(NSData* _Nonnull)payload
-                             length:(NSUInteger)length
+-(instancetype _Nullable)initWithTag:(uint8_t)tag
+                             payload:(NSData *)payload
+                              length:(NSUInteger)length
 {
     self = [super initWithTag:tag length:length];
     if (self) {
         if (payload.length && length > 0) {
-            NSUInteger offset = 0;
-            NSUInteger remainingLength = length;
-            
-            uint32_t formatIdentifier = 0x0;
-            [payload getBytes:&formatIdentifier range:NSMakeRange(offset, 4)];
-            offset+=4;
-            remainingLength-=4;
-            _formatIdentifier = CFSwapInt32BigToHost(formatIdentifier);
+            TSBitReader reader = TSBitReaderMake(payload);
 
-            if (remainingLength > 0) {
-                _additionalIdentificationInfo = [payload subdataWithRange:NSMakeRange(offset, remainingLength)];
-                offset+=remainingLength;
-                remainingLength=0;
+            _formatIdentifier = TSBitReaderReadUInt32BE(&reader);
+            if (reader.error) {
+                TSLogWarn(@"Registration descriptor truncated: need 4 bytes, have %lu",
+                          (unsigned long)payload.length);
+                return nil;
+            }
+
+            NSUInteger remaining = TSBitReaderRemainingBytes(&reader);
+            if (remaining > 0) {
+                _additionalIdentificationInfo = [TSBitReaderReadData(&reader, remaining) copy];
             }
         } else {
             TSLogWarn(@"Received registration descriptor with no payload");
+            return nil;
         }
     }
-    
+
     return self;
 }
 

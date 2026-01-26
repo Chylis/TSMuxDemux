@@ -7,30 +7,30 @@
 //
 
 #import "TSScte35CueIdentifierDescriptor.h"
+#import "../../TSBitReader.h"
 #import "../../TSLog.h"
 
 @implementation TSScte35CueIdentifierDescriptor
 
--(instancetype _Nonnull)initWithTag:(uint8_t)tag
-                            payload:(NSData* _Nonnull)payload
-                             length:(NSUInteger)length
+-(instancetype _Nullable)initWithTag:(uint8_t)tag
+                             payload:(NSData *)payload
+                              length:(NSUInteger)length
 {
     self = [super initWithTag:tag length:length];
     if (self) {
         if (payload.length && length > 0) {
-            NSUInteger offset = 0;
-            NSUInteger remainingLength = length;
-            
-            uint8_t cueStreamType = 0x0;
-            [payload getBytes:&cueStreamType range:NSMakeRange(offset, 1)];
-            offset++;
-            remainingLength--;
-            _cueStreamType = cueStreamType;
+            TSBitReader reader = TSBitReaderMake(payload);
+            _cueStreamType = TSBitReaderReadUInt8(&reader);
+            if (reader.error) {
+                TSLogWarn(@"Received cue identifier descriptor with insufficient data");
+                return nil;
+            }
         } else {
             TSLogWarn(@"Received cue identifier descriptor with no payload");
+            return nil;
         }
     }
-    
+
     return self;
 }
 

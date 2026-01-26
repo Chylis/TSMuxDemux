@@ -8,6 +8,7 @@
 
 #import "TSProgramAssociationTable.h"
 #import "../TSLog.h"
+#import "../TSBitReader.h"
 
 #define PROGRAM_BYTE_LENGTH 4
 
@@ -127,20 +128,38 @@
     }
 
     NSUInteger baseOffset = 5;
-    const NSUInteger numberOfPrograms = (self.psi.sectionDataExcludingCrc.length - baseOffset) / PROGRAM_BYTE_LENGTH;
-    NSMutableDictionary *programPmtMap = [NSMutableDictionary dictionaryWithCapacity:numberOfPrograms];
-    for (int i = 0; i < numberOfPrograms; ++i) {
-        const NSUInteger programOffset = baseOffset + i * PROGRAM_BYTE_LENGTH;
-        uint16_t programByte1And2 = 0x0;
-        [self.psi.sectionDataExcludingCrc getBytes:&programByte1And2 range:NSMakeRange(programOffset, 2)];
-        uint16_t programNumber = CFSwapInt16BigToHost(programByte1And2);
+    NSUInteger dataLength = self.psi.sectionDataExcludingCrc.length;
 
-        uint16_t programByte3And4 = 0x0;
-        [self.psi.sectionDataExcludingCrc getBytes:&programByte3And4 range:NSMakeRange(programOffset + 2, 2)];
-        uint16_t programPmtPid = CFSwapInt16BigToHost(programByte3And4) & 0x1FFF;
+    // Validate minimum length to prevent unsigned underflow
+    if (dataLength < baseOffset) {
+        TSLogError(@"PAT section data too short: %lu bytes (need at least %lu)",
+                   (unsigned long)dataLength, (unsigned long)baseOffset);
+        _programmes = @{};
+        return _programmes;
+    }
+
+    TSBitReader reader = TSBitReaderMakeWithBytes(
+        (const uint8_t *)self.psi.sectionDataExcludingCrc.bytes + baseOffset,
+        dataLength - baseOffset);
+
+    const NSUInteger numberOfPrograms = (dataLength - baseOffset) / PROGRAM_BYTE_LENGTH;
+    NSMutableDictionary *programPmtMap = [NSMutableDictionary dictionaryWithCapacity:numberOfPrograms];
+
+    for (NSUInteger i = 0; i < numberOfPrograms; ++i) {
+        // 16 bits: program number
+        uint16_t programNumber = TSBitReaderReadUInt16BE(&reader);
+        // 3 bits: reserved, 13 bits: PMT PID
+        TSBitReaderSkipBits(&reader, 3);
+        uint16_t programPmtPid = TSBitReaderReadBits(&reader, 13);
+
+        if (reader.error) {
+            TSLogWarn(@"PAT: read error while parsing program entry");
+            break;
+        }
 
         programPmtMap[@(programNumber)] = @(programPmtPid);
     }
+
     _programmes = programPmtMap;
     return _programmes;
 }

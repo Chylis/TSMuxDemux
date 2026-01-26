@@ -18,9 +18,9 @@
 
 @implementation TSDescriptor
 
-+(instancetype _Nonnull)makeWithTag:(uint8_t)tag
-                             length:(uint8_t)length
-                               data:(NSData* _Nullable)payload
++(instancetype _Nullable)makeWithTag:(uint8_t)tag
+                              length:(uint8_t)length
+                                data:(NSData * _Nullable)payload
 {
     NSUInteger offset = 0;
     

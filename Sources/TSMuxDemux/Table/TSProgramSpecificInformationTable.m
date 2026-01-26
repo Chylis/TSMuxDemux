@@ -10,6 +10,7 @@
 #import "../TSConstants.h"
 #import "../TSCrc.h"
 #import "../TSLog.h"
+#import "../TSBitReader.h"
 
 @implementation TSProgramSpecificInformationTable
 
@@ -88,34 +89,50 @@
 
 -(uint16_t)byte4And5
 {
-    uint16_t sdBytes1And2 = 0x0;
-    [self.sectionDataExcludingCrc getBytes:&sdBytes1And2 range:NSMakeRange(0, 2)];
-    return CFSwapInt16BigToHost(sdBytes1And2);
+    if (self.sectionDataExcludingCrc.length < 2) {
+        return 0;
+    }
+    TSBitReader reader = TSBitReaderMake(self.sectionDataExcludingCrc);
+    return TSBitReaderReadUInt16BE(&reader);
 }
 
 -(uint8_t)versionNumber
 {
-    uint8_t sdByte3 = 0x0;
-    [self.sectionDataExcludingCrc getBytes:&sdByte3 range:NSMakeRange(2, 1)];
+    if (self.sectionDataExcludingCrc.length < 3) {
+        return 0;
+    }
+    TSBitReader reader = TSBitReaderMake(self.sectionDataExcludingCrc);
+    TSBitReaderSkip(&reader, 2);
+    uint8_t sdByte3 = TSBitReaderReadUInt8(&reader);
     return (sdByte3 & 0x3E) >> 1;
 }
 -(BOOL)currentNextIndicator
 {
-    uint8_t sdByte3 = 0x0;
-    [self.sectionDataExcludingCrc getBytes:&sdByte3 range:NSMakeRange(2, 1)];
+    if (self.sectionDataExcludingCrc.length < 3) {
+        return NO;
+    }
+    TSBitReader reader = TSBitReaderMake(self.sectionDataExcludingCrc);
+    TSBitReaderSkip(&reader, 2);
+    uint8_t sdByte3 = TSBitReaderReadUInt8(&reader);
     return (sdByte3 & 0x01) != 0x00;
 }
 -(uint8_t)sectionNumber
 {
-    uint8_t sdByte4 = 0x0;
-    [self.sectionDataExcludingCrc getBytes:&sdByte4 range:NSMakeRange(3, 1)];
-    return sdByte4;
+    if (self.sectionDataExcludingCrc.length < 4) {
+        return 0;
+    }
+    TSBitReader reader = TSBitReaderMake(self.sectionDataExcludingCrc);
+    TSBitReaderSkip(&reader, 3);
+    return TSBitReaderReadUInt8(&reader);
 }
 -(uint8_t)lastSectionNumber
 {
-    uint8_t sdByte5 = 0x0;
-    [self.sectionDataExcludingCrc getBytes:&sdByte5 range:NSMakeRange(4, 1)];
-    return sdByte5;
+    if (self.sectionDataExcludingCrc.length < 5) {
+        return 0;
+    }
+    TSBitReader reader = TSBitReaderMake(self.sectionDataExcludingCrc);
+    TSBitReaderSkip(&reader, 4);
+    return TSBitReaderReadUInt8(&reader);
 }
 
 +(NSData*)makeCommonSectionDataFromFirstTwoBytes:(uint16_t)firstTwoBytes

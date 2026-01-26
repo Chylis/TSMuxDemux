@@ -180,9 +180,9 @@ typedef NS_ENUM(uint8_t, TSAtscDescriptorTag) {
 @property(nonatomic, readonly) uint8_t descriptorTag;
 @property(nonatomic, readonly) uint8_t descriptorLength;
 
-+(instancetype _Nonnull)makeWithTag:(uint8_t)tag
-                             length:(uint8_t)length
-                               data:(NSData* _Nullable)payload;
++(instancetype _Nullable)makeWithTag:(uint8_t)tag
+                              length:(uint8_t)length
+                                data:(NSData * _Nullable)payload;
 
 -(instancetype _Nonnull)initWithTag:(uint8_t)tag
                              length:(uint8_t)length;

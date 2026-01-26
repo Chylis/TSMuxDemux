@@ -13,8 +13,8 @@
 @property(nonatomic, readonly) uint32_t formatIdentifier;
 @property(nonatomic, readonly, nullable) NSData* additionalIdentificationInfo;
 
--(instancetype _Nonnull)initWithTag:(uint8_t)tag
-                            payload:(NSData* _Nonnull)payload
-                             length:(NSUInteger)length;
+-(instancetype _Nullable)initWithTag:(uint8_t)tag
+                             payload:(NSData * _Nullable)payload
+                              length:(NSUInteger)length;
 
 @end

@@ -6,6 +6,8 @@
 //
 
 #import "TSAtscServiceLocationDescriptor.h"
+#import "../../TSBitReader.h"
+#import "../../TSLog.h"
 
 #pragma mark - TSAtscServiceLocationElement
 
@@ -51,51 +53,55 @@
 
 @implementation TSAtscServiceLocationDescriptor
 
--(instancetype _Nonnull)initWithTag:(uint8_t)tag
-                            payload:(NSData *)payload
-                             length:(NSUInteger)length
+-(instancetype _Nullable)initWithTag:(uint8_t)tag
+                             payload:(NSData *)payload
+                              length:(NSUInteger)length
 {
     self = [super initWithTag:tag length:length];
     if (self) {
         if (!payload || payload.length < 3) {
-            _pcrPid = 0x1FFF; // Invalid/null PID
-            _elements = @[];
-            return self;
+            return nil;
         }
 
-        const uint8_t *bytes = payload.bytes;
-        NSUInteger payloadLength = payload.length;
-        NSUInteger offset = 0;
+        TSBitReader reader = TSBitReaderMake(payload);
 
         // PCR_PID: 3 bits reserved + 13 bits PID
-        _pcrPid = (((uint16_t)bytes[offset] & 0x1F) << 8) | bytes[offset + 1];
-        offset += 2;
+        TSBitReaderReadBits(&reader, 3);  // reserved
+        _pcrPid = TSBitReaderReadBits(&reader, 13);
 
         // number_elements: 8 bits
-        uint8_t numElements = bytes[offset];
-        offset += 1;
+        uint8_t numElements = TSBitReaderReadUInt8(&reader);
+
+        if (reader.error) {
+            TSLogWarn(@"ATSC service location descriptor truncated");
+            return nil;
+        }
 
         NSMutableArray<TSAtscServiceLocationElement*> *elements = [NSMutableArray arrayWithCapacity:numElements];
 
         for (uint8_t i = 0; i < numElements; i++) {
             // Each element is 6 bytes: stream_type(1) + PID(2) + language(3)
-            if (offset + 6 > payloadLength) {
+            if (TSBitReaderRemainingBytes(&reader) < 6) {
                 break;
             }
 
-            uint8_t streamType = bytes[offset];
-            offset += 1;
+            uint8_t streamType = TSBitReaderReadUInt8(&reader);
 
-            uint16_t elementaryPid = (((uint16_t)bytes[offset] & 0x1F) << 8) | bytes[offset + 1];
-            offset += 2;
+            // elementary_PID: 3 bits reserved + 13 bits PID
+            TSBitReaderReadBits(&reader, 3);  // reserved
+            uint16_t elementaryPid = TSBitReaderReadBits(&reader, 13);
 
             // ISO 639 language code (3 ASCII bytes)
-            NSString *langCode = [[NSString alloc] initWithBytes:&bytes[offset]
-                                                          length:3
-                                                        encoding:NSASCIIStringEncoding] ?: @"";
+            NSData *langData = TSBitReaderReadData(&reader, 3);
+            NSString *langCode = [[NSString alloc] initWithData:langData
+                                                       encoding:NSASCIIStringEncoding] ?: @"";
             // Trim null bytes (language may be 0x00 0x00 0x00 if not specified)
             langCode = [langCode stringByTrimmingCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@"\0"]];
-            offset += 3;
+
+            if (reader.error) {
+                TSLogWarn(@"ATSC service location descriptor: element %u truncated", i);
+                break;
+            }
 
             TSAtscServiceLocationElement *element = [[TSAtscServiceLocationElement alloc]
                                                      initWithStreamType:streamType

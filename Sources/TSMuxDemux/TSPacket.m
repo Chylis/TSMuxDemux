@@ -10,6 +10,7 @@
 #import "TSConstants.h"
 #import "TSElementaryStream.h"
 #import "TSLog.h"
+#import "TSBitReader.h"
 
 
 #pragma mark - TSPacketHeader
@@ -45,38 +46,36 @@
         TSLogError(@"Failed parsing ts-header - too few bytes: %lu", (unsigned long)tsPacketData.length);
         return nil;
     }
-    
-    // Header byte 1:       Sync byte
-    uint8_t byte1 = 0x00;
-    [tsPacketData getBytes:&byte1 range:NSMakeRange(0, 1)];
-    
-    // Header byte 2:
-    // bit 1:               tranport error indicator
-    // bit 2:               payload unit start indicator
-    // bit 3:               transport priority
-    // bits 4-8:            5 MSB bits of the 13-bit PID
-    uint8_t byte2 = 0x00;
-    [tsPacketData getBytes:&byte2 range:NSMakeRange(1, 1)];
-    const BOOL transportErrorIndicator = (byte2 & 0x80) != 0x00;
-    const BOOL payloadUnitStartIndicator = (byte2 & 0x40) != 0x00;
-    const BOOL transportPriority = (byte2 & 0x20) != 0x00;
-    
-    // Header byte 3:       8 LSB bits of the 13-bit PID
-    uint8_t byte3 = 0x00;
-    [tsPacketData getBytes:&byte3 range:NSMakeRange(2, 1)];
-    const uint16_t pid = ((byte2 & 0x1F) << 8) | byte3;
-    
-    // Header byte 4:
-    // bits 1-2:            transport scrambling control
-    // bits 3-4:            adaption field control
-    // bits 5-8:            continuity counter
-    uint8_t byte4 = 0x00;
-    [tsPacketData getBytes:&byte4 range:NSMakeRange(3, 1)];
-    const BOOL isScrambled = (byte4 & 0xC0) != 0x00;
-    const TSAdaptationMode adaptationMode = ((byte4 & 0x30) >> 4);
-    const uint8_t continuityCounter = byte4 & 0x0F;
-    
-    TSPacketHeader *header = [[TSPacketHeader alloc] initWithSyncByte:byte1
+
+    TSBitReader reader = TSBitReaderMake(tsPacketData);
+
+    // Byte 1: sync byte
+    const uint8_t syncByte = TSBitReaderReadUInt8(&reader);
+
+    // Byte 2-3 bit fields:
+    // - 1 bit: transport error indicator
+    // - 1 bit: payload unit start indicator
+    // - 1 bit: transport priority
+    // - 13 bits: PID
+    const BOOL transportErrorIndicator = TSBitReaderReadBits(&reader, 1) != 0;
+    const BOOL payloadUnitStartIndicator = TSBitReaderReadBits(&reader, 1) != 0;
+    const BOOL transportPriority = TSBitReaderReadBits(&reader, 1) != 0;
+    const uint16_t pid = TSBitReaderReadBits(&reader, 13);
+
+    // Byte 4 bit fields:
+    // - 2 bits: transport scrambling control
+    // - 2 bits: adaptation field control
+    // - 4 bits: continuity counter
+    const BOOL isScrambled = TSBitReaderReadBits(&reader, 2) != 0;
+    const TSAdaptationMode adaptationMode = TSBitReaderReadBits(&reader, 2);
+    const uint8_t continuityCounter = TSBitReaderReadBits(&reader, 4);
+
+    if (reader.error) {
+        TSLogError(@"Failed parsing ts-header - read error");
+        return nil;
+    }
+
+    TSPacketHeader *header = [[TSPacketHeader alloc] initWithSyncByte:syncByte
                                                                   tei:transportErrorIndicator
                                                                  pusi:payloadUnitStartIndicator
                                                     transportPriority:transportPriority
@@ -199,12 +198,11 @@
 
 +(instancetype)initWithTsPacketData:(NSData*)tsPacketData
 {
-    NSUInteger offset = TS_PACKET_HEADER_SIZE;
-    
-    uint8_t adaptationFieldLength = 0x00;
-    [tsPacketData getBytes:&adaptationFieldLength range:NSMakeRange(offset, 1)];
-    offset +=1;
-    
+    TSBitReader reader = TSBitReaderMakeWithBytes((const uint8_t *)tsPacketData.bytes + TS_PACKET_HEADER_SIZE,
+                                                   tsPacketData.length - TS_PACKET_HEADER_SIZE);
+
+    const uint8_t adaptationFieldLength = TSBitReaderReadUInt8(&reader);
+
     BOOL discontinuityFlag = NO;
     BOOL randomAccessIndicator = NO;
     BOOL esPriorityIndicator = NO;
@@ -217,64 +215,37 @@
     uint16_t pcrExt = 0;
 
     if (adaptationFieldLength > 0) {
-        // byte 2:
-        // bit 1:               discontinuity_indicator
-        // bit 2:               random_access_indicator
-        // bit 3:               elementary_stream_priority_indicator
-        // bit 4:               PCR_flag
-        // bit 5:               OPCR_flag
-        // bit 6:               splicing_point_flag
-        // bit 7:               transport_private_data_flag
-        // bit 8:               adaptation_field_extension_flag
-        uint8_t byte2 = 0x00;
-        [tsPacketData getBytes:&byte2 range:NSMakeRange(offset, 1)];
-        offset +=1;
+        // Flags byte (8 single-bit flags)
+        discontinuityFlag = TSBitReaderReadBits(&reader, 1) != 0;
+        randomAccessIndicator = TSBitReaderReadBits(&reader, 1) != 0;
+        esPriorityIndicator = TSBitReaderReadBits(&reader, 1) != 0;
+        pcrFlag = TSBitReaderReadBits(&reader, 1) != 0;
+        oPcrFlag = TSBitReaderReadBits(&reader, 1) != 0;
+        splicingPointFlag = TSBitReaderReadBits(&reader, 1) != 0;
+        transportPrivateDataFlag = TSBitReaderReadBits(&reader, 1) != 0;
+        adaptationFieldExtensionFlag = TSBitReaderReadBits(&reader, 1) != 0;
 
-        discontinuityFlag = (byte2 & 0x80) != 0x00;
-        randomAccessIndicator = (byte2 & 0x40) != 0x00;
-        esPriorityIndicator = (byte2 & 0x20) != 0x00;
-        pcrFlag = (byte2 & 0x10) != 0x00;
-        oPcrFlag = (byte2 & 0x8) != 0x00;
-        splicingPointFlag = (byte2 & 0x4) != 0x00;
-        transportPrivateDataFlag = (byte2 & 0x2) != 0x00;
-        adaptationFieldExtensionFlag = (byte2 & 0x1) != 0x00;
-
-        // Parse PCR (6 bytes) if present
-        // PCR is 48 bits: 33-bit base + 6 reserved + 9-bit extension
-        if (pcrFlag && offset + 6 <= tsPacketData.length) {
-            uint8_t pcr[6];
-            [tsPacketData getBytes:pcr range:NSMakeRange(offset, 6)];
-            offset += 6;
-
-            // Decode PCR base (33 bits) and extension (9 bits)
-            // byte 0: bits 32-25 of base
-            // byte 1: bits 24-17 of base
-            // byte 2: bits 16-9 of base
-            // byte 3: bits 8-1 of base
-            // byte 4: bit 7 = bit 0 of base, bits 6-1 = reserved, bit 0 = bit 8 of ext
-            // byte 5: bits 7-0 of ext
-            pcrBase = ((uint64_t)pcr[0] << 25) |
-                      ((uint64_t)pcr[1] << 17) |
-                      ((uint64_t)pcr[2] << 9) |
-                      ((uint64_t)pcr[3] << 1) |
-                      ((pcr[4] >> 7) & 0x01);
-            pcrExt = ((uint16_t)(pcr[4] & 0x01) << 8) | pcr[5];
+        // Parse PCR (48 bits) if present: 33-bit base + 6 reserved + 9-bit extension
+        if (pcrFlag && TSBitReaderHasBits(&reader, 48)) {
+            pcrBase = ((uint64_t)TSBitReaderReadBits(&reader, 32) << 1) | TSBitReaderReadBits(&reader, 1);
+            TSBitReaderSkipBits(&reader, 6);  // Reserved bits
+            pcrExt = TSBitReaderReadBits(&reader, 9);
         }
 
-        // TODO: Parse OPCR (6 bytes) if oPcrFlag
-        // TODO: Parse splice_countdown (1 byte) if splicingPointFlag
+        // TODO: Parse OPCR (48 bits) if oPcrFlag
+        // TODO: Parse splice_countdown (8 bits) if splicingPointFlag
         // TODO: Parse transport_private_data if transportPrivateDataFlag
         // TODO: Parse adaptation_field_extension if adaptationFieldExtensionFlag
     }
-    
-    // Calculate stuffing bytes: adaptationFieldLength minus flags byte and parsed optional fields
+
+    // Calculate stuffing bytes
     NSUInteger numberOfStuffedBytes = 0;
     if (adaptationFieldLength > 0) {
-        NSUInteger usedBytes = 1; // flags byte
+        NSUInteger usedBytes = 1;  // flags byte
         if (pcrFlag) usedBytes += 6;
-        // TODO: Add OPCR (6), splice_countdown (1), private_data, extension when parsed
         numberOfStuffedBytes = (adaptationFieldLength > usedBytes) ? (adaptationFieldLength - usedBytes) : 0;
     }
+
     TSAdaptationField *adaptationField = [[TSAdaptationField alloc] initWithAdaptationFieldLength:adaptationFieldLength
                                                                                 discontinuityFlag:discontinuityFlag
                                                                                  randomAccessFlag:randomAccessIndicator
@@ -287,7 +258,7 @@
                                                                                           pcrBase:pcrBase
                                                                                            pcrExt:pcrExt
                                                                              numberOfStuffedBytes:numberOfStuffedBytes];
-    
+
     return adaptationField;
 }
 
@@ -411,6 +382,11 @@
             TS_PACKET_HEADER_SIZE
             + (hasAdaptationField ? 1 : 0) // + 1 for the first byte of the adaptation header itself
             + (adaptationField.adaptationFieldLength ?: 0);
+            if (payloadOffset >= TS_PACKET_SIZE_188) {
+                TSLogError(@"Invalid TS packet: payloadOffset %lu exceeds packet size (adaptation_field_length=%u)",
+                           (unsigned long)payloadOffset, adaptationField.adaptationFieldLength);
+                continue;
+            }
             const NSUInteger payloadLength = TS_PACKET_SIZE_188 - payloadOffset;
             payload = [NSData dataWithBytesNoCopy:(void*)tsPacketData.bytes + payloadOffset
                                            length:payloadLength

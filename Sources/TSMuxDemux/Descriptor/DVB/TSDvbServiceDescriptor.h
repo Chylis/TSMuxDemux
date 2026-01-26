@@ -52,8 +52,8 @@ typedef NS_ENUM(uint8_t, TSDvbServiceDescriptorServiceType) {
 @property(nonatomic, readonly, nullable) NSData *serviceProviderName;
 @property(nonatomic, readonly, nullable) NSData *serviceName;
 
--(instancetype _Nonnull)initWithTag:(uint8_t)tag
-                            payload:(NSData* _Nonnull)payload
-                             length:(NSUInteger)length;
+-(instancetype _Nullable)initWithTag:(uint8_t)tag
+                             payload:(NSData * _Nullable)payload
+                              length:(NSUInteger)length;
 
 @end

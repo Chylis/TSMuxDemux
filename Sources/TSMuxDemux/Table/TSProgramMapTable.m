@@ -11,6 +11,7 @@
 #import "../Descriptor/TSDescriptor.h"
 #import "../Descriptor/TSRegistrationDescriptor.h"
 #import "../TSLog.h"
+#import "../TSBitReader.h"
 
 #define ELEMENTARY_STREAM_BYTE_LENGTH 5
 
@@ -161,57 +162,56 @@
 }
 -(uint16_t)pcrPid
 {
-    uint16_t sdBytes6And7 = 0x0;
-    [self.psi.sectionDataExcludingCrc getBytes:&sdBytes6And7 range:NSMakeRange(5, 2)];
-    return CFSwapInt16BigToHost(sdBytes6And7) & (uint16_t)0x1FFF;
+    if (self.psi.sectionDataExcludingCrc.length < 7) return 0;
+    TSBitReader reader = TSBitReaderMakeWithBytes(
+        (const uint8_t *)self.psi.sectionDataExcludingCrc.bytes + 5, 2);
+    TSBitReaderSkipBits(&reader, 3);  // reserved
+    return TSBitReaderReadBits(&reader, 13);
 }
 
 -(uint16_t)programInfoLength
 {
-    uint16_t sdBytes8And9 = 0x0;
-    [self.psi.sectionDataExcludingCrc getBytes:&sdBytes8And9 range:NSMakeRange(7, 2)];
-    return CFSwapInt16BigToHost(sdBytes8And9) & (uint16_t)0x3FF;
+    if (self.psi.sectionDataExcludingCrc.length < 9) return 0;
+    TSBitReader reader = TSBitReaderMakeWithBytes(
+        (const uint8_t *)self.psi.sectionDataExcludingCrc.bytes + 7, 2);
+    TSBitReaderSkipBits(&reader, 6);  // reserved + unused
+    return TSBitReaderReadBits(&reader, 10);
 }
 
 -(NSArray<TSDescriptor*> * _Nullable)programDescriptors
 {
     NSMutableArray<TSDescriptor*> *programDescriptors = [NSMutableArray array];
-    NSUInteger programDescriptorsRemainingLength = self.programInfoLength;
-    NSUInteger offset = 9;
-    
+    uint16_t programInfoLength = self.programInfoLength;
+    if (programInfoLength == 0) return programDescriptors;
+
     NSUInteger dataLength = self.psi.sectionDataExcludingCrc.length;
-    while (programDescriptorsRemainingLength > 0) { // program-info loop begin
-        // Bounds check: need at least 2 bytes for tag and length
-        if (offset + 2 > dataLength) break;
+    if (9 + programInfoLength > dataLength) return programDescriptors;
 
-        uint8_t descriptorTag = 0x0;
-        [self.psi.sectionDataExcludingCrc getBytes:&descriptorTag range:NSMakeRange(offset, 1)];
-        offset++;
-        programDescriptorsRemainingLength--;
+    TSBitReader reader = TSBitReaderMakeWithBytes(
+        (const uint8_t *)self.psi.sectionDataExcludingCrc.bytes + 9,
+        programInfoLength);
 
-        // descriptorLength specifies the number of bytes of the descriptor immediately following the descriptor_length field.
-        uint8_t descriptorLength = 0x0;
-        [self.psi.sectionDataExcludingCrc getBytes:&descriptorLength range:NSMakeRange(offset, 1)];
-        offset++;
-        programDescriptorsRemainingLength--;
+    while (TSBitReaderRemainingBytes(&reader) >= 2) {
+        uint8_t descriptorTag = TSBitReaderReadUInt8(&reader);
+        uint8_t descriptorLength = TSBitReaderReadUInt8(&reader);
 
-        // Bounds check: ensure descriptor payload fits in buffer
-        if (offset + descriptorLength > dataLength) break;
+        if (reader.error || TSBitReaderRemainingBytes(&reader) < descriptorLength) {
+            TSLogWarn(@"PMT: program descriptor truncated");
+            break;
+        }
 
         NSData *descriptorPayload = descriptorLength > 0
-        ? [NSData dataWithBytesNoCopy:(void*)[self.psi.sectionDataExcludingCrc bytes] + offset
-                               length:descriptorLength
-                         freeWhenDone:NO]
-        : nil;
+            ? TSBitReaderReadData(&reader, descriptorLength)
+            : nil;
+
         TSDescriptor *programDescriptor = [TSDescriptor makeWithTag:descriptorTag
                                                              length:descriptorLength
                                                                data:descriptorPayload];
-        offset += descriptorLength;
-        programDescriptorsRemainingLength -= descriptorLength;
-        [programDescriptors addObject:programDescriptor];
-        
-    } // program-info loop end
-    
+        if (programDescriptor) {
+            [programDescriptors addObject:programDescriptor];
+        }
+    }
+
     return programDescriptors;
 }
 
@@ -230,66 +230,66 @@
     }
 
     NSMutableSet *result = [NSMutableSet set];
-    NSUInteger offset = 9 + self.programInfoLength;
-    while (offset < self.psi.sectionDataExcludingCrc.length) { // elementary stream loop begin
-        uint8_t esByte1 = 0x0;
-        [self.psi.sectionDataExcludingCrc getBytes:&esByte1 range:NSMakeRange(offset, 1)];
-        offset++;
-        const uint8_t esStreamType = esByte1;
+    NSUInteger esDataStart = 9 + self.programInfoLength;
+    NSUInteger dataLength = self.psi.sectionDataExcludingCrc.length;
 
-        uint16_t esBytes2And3 = 0x0;
-        [self.psi.sectionDataExcludingCrc getBytes:&esBytes2And3 range:NSMakeRange(offset, 2)];
-        offset +=2;
-        const uint16_t esPid = CFSwapInt16BigToHost(esBytes2And3) & (uint16_t)0x1FFF;
+    if (esDataStart >= dataLength) {
+        _elementaryStreams = result;
+        return _elementaryStreams;
+    }
 
-        uint16_t esBytes4And5 = 0x0;
-        [self.psi.sectionDataExcludingCrc getBytes:&esBytes4And5 range:NSMakeRange(offset, 2)];
-        offset +=2;
-        // esInfoLength specifies the number of bytes of the descriptors of the associated program element immediately following the ES_info_length field.
-        const uint16_t esInfoLength = CFSwapInt16BigToHost(esBytes4And5) & (uint16_t)0x3FF;
-        NSUInteger esInfoRemainingLength = esInfoLength;
+    TSBitReader reader = TSBitReaderMakeWithBytes(
+        (const uint8_t *)self.psi.sectionDataExcludingCrc.bytes + esDataStart,
+        dataLength - esDataStart);
+
+    // Each ES entry requires at minimum 5 bytes (1 stream_type + 2 PID + 2 ES_info_length)
+    while (TSBitReaderRemainingBytes(&reader) >= 5) {
+        // 8 bits: stream_type
+        const uint8_t esStreamType = TSBitReaderReadUInt8(&reader);
+        // 3 bits: reserved, 13 bits: elementary PID
+        TSBitReaderSkipBits(&reader, 3);
+        const uint16_t esPid = TSBitReaderReadBits(&reader, 13);
+        // 4 bits: reserved, 2 bits: unused, 10 bits: ES_info_length
+        TSBitReaderSkipBits(&reader, 6);
+        const uint16_t esInfoLength = TSBitReaderReadBits(&reader, 10);
+
+        if (reader.error) {
+            TSLogWarn(@"PMT: read error while parsing ES entry for PID 0x%04X", esPid);
+            break;
+        }
 
         NSMutableArray<TSDescriptor*> *esDescriptors = nil;
         if (esInfoLength > 0) {
             esDescriptors = [NSMutableArray array];
-            NSUInteger esDataLength = self.psi.sectionDataExcludingCrc.length;
-            while (esInfoRemainingLength > 0) { // es-descriptor loop begin
-                // Bounds check: need at least 2 bytes for tag and length
-                if (offset + 2 > esDataLength) break;
+            TSBitReader descReader = TSBitReaderSubReader(&reader, esInfoLength);
 
-                uint8_t descriptorTag = 0x0;
-                [self.psi.sectionDataExcludingCrc getBytes:&descriptorTag range:NSMakeRange(offset, 1)];
-                offset++;
-                esInfoRemainingLength--;
+            while (TSBitReaderRemainingBytes(&descReader) >= 2) {
+                uint8_t descriptorTag = TSBitReaderReadUInt8(&descReader);
+                uint8_t descriptorLength = TSBitReaderReadUInt8(&descReader);
 
-                // descriptorLength specifies the number of bytes of the descriptor immediately following the descriptor_length field.
-                uint8_t descriptorLength = 0x0;
-                [self.psi.sectionDataExcludingCrc getBytes:&descriptorLength range:NSMakeRange(offset, 1)];
-                offset++;
-                esInfoRemainingLength--;
-
-                // Bounds check: ensure descriptor payload fits in buffer
-                if (offset + descriptorLength > esDataLength) break;
+                if (descReader.error || TSBitReaderRemainingBytes(&descReader) < descriptorLength) {
+                    TSLogWarn(@"PMT: ES descriptor truncated for PID 0x%04X", esPid);
+                    break;
+                }
 
                 NSData *descriptorPayload = descriptorLength > 0
-                ? [NSData dataWithBytesNoCopy:(void*)[self.psi.sectionDataExcludingCrc bytes] + offset
-                                       length:descriptorLength
-                                 freeWhenDone:NO]
-                : nil;
+                    ? TSBitReaderReadData(&descReader, descriptorLength)
+                    : nil;
+
                 TSDescriptor *esDescriptor = [TSDescriptor makeWithTag:descriptorTag
                                                                 length:descriptorLength
                                                                   data:descriptorPayload];
-                offset += descriptorLength;
-                esInfoRemainingLength -= descriptorLength;
-                [esDescriptors addObject:esDescriptor];
-            } // es-descriptor loop end
+                if (esDescriptor) {
+                    [esDescriptors addObject:esDescriptor];
+                }
+            }
         }
 
         TSElementaryStream *stream = [[TSElementaryStream alloc] initWithPid:esPid
                                                                   streamType:esStreamType
                                                                  descriptors:esDescriptors];
         [result addObject:stream];
-    } // ES-stream loop end
+    }
 
     _elementaryStreams = result;
     return _elementaryStreams;

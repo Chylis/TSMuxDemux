@@ -11,6 +11,7 @@
 #import "../../Descriptor/TSDescriptor.h"
 #import "../../Descriptor/ATSC/TSAtscServiceLocationDescriptor.h"
 #import "../../TSLog.h"
+#import "../../TSBitReader.h"
 
 #pragma mark - TSAtscVirtualChannel
 
@@ -92,8 +93,7 @@
         _isTerrestrial = (psi.tableId == TABLE_ID_ATSC_TVCT);
         _transportStreamId = [psi byte4And5];
 
-        const uint8_t *bytes = data.bytes;
-        NSUInteger length = data.length;
+        TSBitReader reader = TSBitReaderMake(data);
 
         // sectionDataExcludingCrc layout:
         // Bytes 0-1: transport_stream_id (accessed via psi.byte4And5)
@@ -104,113 +104,112 @@
         // Byte 6: num_channels_in_section
         // Bytes 7+: channel loop
 
-        // protocol_version (8 bits) at offset 5
-        if (length < 7) {
+        // Skip to protocol_version at offset 5
+        TSBitReaderSkip(&reader, 5);
+        if (reader.error) {
+            TSLogWarn(@"VCT: section data truncated before protocol_version");
             _channels = @[];
             return self;
         }
-        // uint8_t protocolVersion = bytes[5];
 
-        // num_channels_in_section (8 bits) at offset 6
-        uint8_t numChannels = bytes[6];
-        NSUInteger offset = 7;
+        // protocol_version (8 bits)
+        TSBitReaderReadUInt8(&reader);  // Skip protocol version
+
+        // num_channels_in_section (8 bits)
+        uint8_t numChannels = TSBitReaderReadUInt8(&reader);
+        if (reader.error) {
+            TSLogWarn(@"VCT: section data truncated before num_channels");
+            _channels = @[];
+            return self;
+        }
 
         NSMutableArray<TSAtscVirtualChannel*> *channels = [NSMutableArray arrayWithCapacity:numChannels];
 
         for (uint8_t i = 0; i < numChannels; i++) {
             // Each channel entry is at least 32 bytes (fixed part)
-            if (offset + 32 > length) {
-                TSLogWarn(@"VCT: insufficient data for channel %u at offset %lu", i, (unsigned long)offset);
+            if (TSBitReaderRemainingBytes(&reader) < 32) {
+                TSLogWarn(@"VCT: insufficient data for channel %u", i);
                 break;
             }
 
             TSAtscVirtualChannel *channel = [TSAtscVirtualChannel new];
 
             // short_name: 7 x 16-bit UTF-16BE characters (14 bytes)
-            // If the channel name is shorter the remaining positions are padded with null characters.
-            NSData *nameData = [NSData dataWithBytes:&bytes[offset] length:14];
+            NSData *nameData = TSBitReaderReadData(&reader, 14);
             NSString *name = [[NSString alloc] initWithData:nameData encoding:NSUTF16BigEndianStringEncoding];
             // Trim to remove padded null chars, e.g. "XYZ\0\0\0\0" --> "XYZ".
             channel.shortName = [name stringByTrimmingCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@"\0"]] ?: @"";
-            offset += 14;
 
             // 4 bytes containing major/minor channel numbers and modulation
-            // Bits: rrrr_mmmm_mmmm_mm nn_nnnn_nnnn_MMMM_MMMM
-            // r = reserved (4 bits)
-            // m = major_channel_number (10 bits)
-            // n = minor_channel_number (10 bits)
-            // M = modulation_mode (8 bits)
-            uint32_t channelBits = ((uint32_t)bytes[offset] << 24) |
-                                   ((uint32_t)bytes[offset + 1] << 16) |
-                                   ((uint32_t)bytes[offset + 2] << 8) |
-                                   (uint32_t)bytes[offset + 3];
-            channel.majorChannelNumber = (channelBits >> 18) & 0x3FF;
-            channel.minorChannelNumber = (channelBits >> 8) & 0x3FF;
-            // uint8_t modulationMode = channelBits & 0xFF;
-            offset += 4;
+            // Bits: rrrr(4) + major_channel_number(10) + minor_channel_number(10) + modulation_mode(8)
+            TSBitReaderReadBits(&reader, 4);  // reserved
+            channel.majorChannelNumber = TSBitReaderReadBits(&reader, 10);
+            channel.minorChannelNumber = TSBitReaderReadBits(&reader, 10);
+            TSBitReaderReadBits(&reader, 8);  // modulation_mode (unused)
 
-            // carrier_frequency (32 bits) - deprecated, set to 0
-            offset += 4;
+            // carrier_frequency (32 bits) - deprecated, skip
+            TSBitReaderSkip(&reader, 4);
 
-            // channel_TSID (16 bits)
-            offset += 2;
+            // channel_TSID (16 bits) - skip
+            TSBitReaderSkip(&reader, 2);
 
             // program_number (16 bits)
-            channel.programNumber = ((uint16_t)bytes[offset] << 8) | bytes[offset + 1];
-            offset += 2;
+            channel.programNumber = TSBitReaderReadUInt16BE(&reader);
 
             // Flags byte 1: ETM_location (2), access_controlled (1), hidden (1),
             //               path_select (1), out_of_band (1), hide_guide (1), reserved (1)
-            uint8_t flags1 = bytes[offset];
-            channel.accessControlled = (flags1 & 0x20) != 0;
-            channel.hidden = (flags1 & 0x10) != 0;
-            channel.hideGuide = (flags1 & 0x02) != 0;
-            offset += 1;
+            TSBitReaderReadBits(&reader, 2);  // ETM_location
+            channel.accessControlled = TSBitReaderReadBits(&reader, 1) != 0;
+            channel.hidden = TSBitReaderReadBits(&reader, 1) != 0;
+            TSBitReaderReadBits(&reader, 2);  // path_select, out_of_band
+            channel.hideGuide = TSBitReaderReadBits(&reader, 1) != 0;
+            TSBitReaderReadBits(&reader, 1);  // reserved
 
             // Flags byte 2: reserved (2), service_type (6)
-            uint8_t flags2 = bytes[offset];
-            channel.serviceType = flags2 & 0x3F;
-            offset += 1;
+            TSBitReaderReadBits(&reader, 2);  // reserved
+            channel.serviceType = TSBitReaderReadBits(&reader, 6);
 
             // source_id (16 bits)
-            channel.sourceId = ((uint16_t)bytes[offset] << 8) | bytes[offset + 1];
-            offset += 2;
+            channel.sourceId = TSBitReaderReadUInt16BE(&reader);
 
-            // descriptors_length (10 bits, upper 6 bits reserved)
-            if (offset + 2 > length) {
+            // descriptors_length (6 reserved + 10 bits length)
+            TSBitReaderReadBits(&reader, 6);  // reserved
+            uint16_t descriptorsLength = TSBitReaderReadBits(&reader, 10);
+
+            if (reader.error) {
+                TSLogWarn(@"VCT: read error while parsing channel %u", i);
                 break;
             }
-            uint16_t descriptorsLength = (((uint16_t)bytes[offset] & 0x03) << 8) | bytes[offset + 1];
-            offset += 2;
 
-            // Parse descriptors
-            NSUInteger descriptorsEnd = offset + descriptorsLength;
-            while (offset + 2 <= descriptorsEnd && offset + 2 <= length) {
-                uint8_t descriptorTag = bytes[offset];
-                uint8_t descriptorLen = bytes[offset + 1];
-                offset += 2;
+            // Parse descriptors using a sub-reader
+            if (descriptorsLength > 0 && TSBitReaderRemainingBytes(&reader) >= descriptorsLength) {
+                TSBitReader descReader = TSBitReaderSubReader(&reader, descriptorsLength);
 
-                if (offset + descriptorLen > length) {
-                    break;
+                while (TSBitReaderRemainingBytes(&descReader) >= 2) {
+                    uint8_t descriptorTag = TSBitReaderReadUInt8(&descReader);
+                    uint8_t descriptorLen = TSBitReaderReadUInt8(&descReader);
+
+                    if (descReader.error || TSBitReaderRemainingBytes(&descReader) < descriptorLen) {
+                        TSLogWarn(@"VCT: descriptor truncated for channel %u", i);
+                        break;
+                    }
+
+                    NSData *descriptorPayload = descriptorLen > 0
+                        ? TSBitReaderReadData(&descReader, descriptorLen)
+                        : nil;
+
+                    TSDescriptor *descriptor = [TSDescriptor makeWithTag:descriptorTag
+                                                                  length:descriptorLen
+                                                                    data:descriptorPayload];
+
+                    if ([descriptor isKindOfClass:[TSAtscServiceLocationDescriptor class]]) {
+                        channel.serviceLocation = (TSAtscServiceLocationDescriptor *)descriptor;
+                    }
                 }
-
-                NSData *descriptorPayload = descriptorLen > 0
-                    ? [NSData dataWithBytes:&bytes[offset] length:descriptorLen]
-                    : nil;
-
-                TSDescriptor *descriptor = [TSDescriptor makeWithTag:descriptorTag
-                                                              length:descriptorLen
-                                                                data:descriptorPayload];
-
-                if ([descriptor isKindOfClass:[TSAtscServiceLocationDescriptor class]]) {
-                    channel.serviceLocation = (TSAtscServiceLocationDescriptor *)descriptor;
-                }
-
-                offset += descriptorLen;
+            } else if (descriptorsLength > 0) {
+                // Skip remaining if not enough data
+                break;
             }
-
-            // Ensure we're at the end of descriptors
-            offset = MIN(descriptorsEnd, length);
 
             [channels addObject:channel];
         }

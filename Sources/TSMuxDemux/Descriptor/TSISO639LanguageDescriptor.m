@@ -7,6 +7,7 @@
 //
 
 #import "TSISO639LanguageDescriptor.h"
+#import "../TSBitReader.h"
 #import "../TSFourCharCodeUtil.h"
 #import "../TSLog.h"
 
@@ -109,34 +110,45 @@
     self = [super initWithTag:tag length:length];
     if (self) {
         if (payload.length && length > 0) {
-            NSUInteger offset = 0;
-            NSUInteger remainingLength = length;
-            
-            if (remainingLength > 0) {
-                NSMutableArray *entries = [NSMutableArray arrayWithCapacity:remainingLength / 4];
-                
-                while (remainingLength > 0) {
-                    NSData *langCode = [payload subdataWithRange:NSMakeRange(offset, 3)];
-                    offset+=3;
-                    remainingLength-=3;
-                    
-                    uint8_t audioType = 0;
-                    [payload getBytes:&audioType range:NSMakeRange(offset, 1)];
-                    offset++;
-                    remainingLength--;
-                    
+            // Use the smaller of declared length and actual payload length
+            NSUInteger effectiveLength = MIN(length, payload.length);
+
+            if (effectiveLength >= 4) {
+                TSBitReader reader = TSBitReaderMakeWithBytes(payload.bytes, effectiveLength);
+                NSMutableArray *entries = [NSMutableArray arrayWithCapacity:effectiveLength / 4];
+
+                // Each entry requires 4 bytes (language code: 3 + audio type: 1)
+                while (TSBitReaderRemainingBytes(&reader) >= 4) {
+                    NSData *langCode = TSBitReaderReadData(&reader, 3);
+                    uint8_t audioType = TSBitReaderReadUInt8(&reader);
+
+                    if (reader.error) {
+                        TSLogWarn(@"ISO639LanguageDescriptor read error while parsing entry");
+                        break;
+                    }
+
                     TSISO639LanguageDescriptorEntry *e = [[TSISO639LanguageDescriptorEntry alloc]
                                                           initWithLanguageCode:langCode
                                                           audioType:audioType];
                     [entries addObject:e];
                 }
+                NSUInteger remaining = TSBitReaderRemainingBytes(&reader);
+                if (remaining > 0 && remaining < 4) {
+                    TSLogWarn(@"ISO639LanguageDescriptor has %lu trailing bytes (incomplete entry)",
+                              (unsigned long)remaining);
+                }
                 _entries = entries;
+            } else {
+                TSLogWarn(@"ISO639LanguageDescriptor too short: %lu bytes (need at least 4)",
+                          (unsigned long)effectiveLength);
+                _entries = @[];
             }
         } else {
             TSLogWarn(@"Received ISO639LanguageDescriptor with no payload");
+            _entries = @[];
         }
     }
-    
+
     return self;
 }
 
