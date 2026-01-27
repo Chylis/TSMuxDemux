@@ -81,16 +81,8 @@
     }
 
     NSUInteger offset = 0;
-    
+
     if (tsPacket.header.payloadUnitStartIndicator) {
-        BOOL hasIncompleteTable =
-        self.sectionInProgress &&
-        (self.sectionInProgress.sectionDataExcludingCrc.length + PSI_CRC_LEN) < self.sectionInProgress.sectionLength;
-        if (hasIncompleteTable) {
-            TSLogDebug(@"Discarding incomplete PSI section on PID 0x%04x, table: 0x%04x, len: %u", self.pid, self.sectionInProgress.tableId, self.sectionInProgress.sectionLength);
-            self.sectionInProgress = nil;
-        }
-        
         TSBitReader ptrReader = TSBitReaderMake(tsPacket.payload);
         uint8_t pointerField = TSBitReaderReadUInt8(&ptrReader);
         if (ptrReader.error) {
@@ -98,14 +90,53 @@
             return;
         }
         offset++;
-        // The pointer gives the number of bytes, immediately following the pointer_field until the
-        // first byte of the first section that is present in the payload of the transport stream packet
+
+        // Validate pointer_field bounds
         if (offset + pointerField > tsPacket.payload.length) {
             TSLogWarn(@"PSI pointer field overflow on PID 0x%04x (pointer=%u, remaining=%lu)",
                       self.pid, pointerField, (unsigned long)(tsPacket.payload.length - offset));
             return;
         }
-        offset+=pointerField;
+
+        // If pointer_field > 0, bytes before pointer are continuation of previous section
+        if (pointerField > 0 && self.sectionInProgress) {
+            // Complete the in-progress section with continuation bytes
+            NSData *continuationData = [tsPacket.payload subdataWithRange:NSMakeRange(offset, pointerField)];
+            NSUInteger remainingBytesInTable = self.sectionInProgress.sectionLength - self.sectionInProgress.sectionDataExcludingCrc.length;
+
+            if (remainingBytesInTable >= PSI_CRC_LEN && pointerField >= remainingBytesInTable) {
+                // Section completes within continuation bytes
+                NSUInteger dataBytesNeeded = remainingBytesInTable - PSI_CRC_LEN;
+                NSData *finalDataNoCrc = [continuationData subdataWithRange:NSMakeRange(0, dataBytesNeeded)];
+
+                NSMutableData *completeData = [NSMutableData dataWithData:self.sectionInProgress.sectionDataExcludingCrc];
+                [completeData appendData:finalDataNoCrc];
+                self.sectionInProgress.sectionDataExcludingCrc = [NSData dataWithData:completeData];
+
+                // Read CRC
+                if (dataBytesNeeded + PSI_CRC_LEN <= pointerField) {
+                    TSBitReader crcReader = TSBitReaderMakeWithBytes(
+                        (const uint8_t *)continuationData.bytes + dataBytesNeeded, PSI_CRC_LEN);
+                    self.sectionInProgress.crc = TSBitReaderReadUInt32BE(&crcReader);
+
+                    [self deliverCompletedSection:self.sectionInProgress];
+                }
+                self.sectionInProgress = nil;
+            } else {
+                // Not enough continuation bytes or invalid state - discard
+                TSLogDebug(@"PSI: discarding incomplete section on PID 0x%04x (pointer=%u, needed=%lu)",
+                           self.pid, pointerField, (unsigned long)remainingBytesInTable);
+                self.sectionInProgress = nil;
+            }
+        } else if (pointerField == 0 && self.sectionInProgress) {
+            // New section starts immediately but we have incomplete section - discard it
+            TSLogDebug(@"Discarding incomplete PSI section on PID 0x%04x, table: 0x%04x, len: %u",
+                       self.pid, self.sectionInProgress.tableId, self.sectionInProgress.sectionLength);
+            self.sectionInProgress = nil;
+        }
+
+        // Move offset past pointer_field bytes to start of new section
+        offset += pointerField;
     } else if (!self.sectionInProgress) {
         TSLogDebug(@"Waiting for start of PSI PID 0x%04x (no section in progress)", self.pid);
         return;
