@@ -688,6 +688,150 @@
     XCTAssertEqual(self.receivedTables[1].sectionLength, sectionBLength);
 }
 
+- (void)test_sectionExactlyFillsRemainingPacketSpace_deliversSection {
+    // Regression test: When section_length exactly equals remaining bytes in packet,
+    // the section should be delivered immediately (not stored as sectionInProgress).
+    //
+    // Bug: The condition `remainingBytesInTable < remainingBytesInPacket` used < instead of <=,
+    // causing sections that exactly fit to be incorrectly treated as spanning multiple packets.
+    // Symptom: "Discarding incomplete PSI section" logged when next PAT arrives.
+    TSPsiTableBuilder *builder = [[TSPsiTableBuilder alloc] initWithDelegate:self pid:0x00];
+
+    // Create a packet where section exactly fills remaining space after PUSI overhead.
+    // PUSI overhead: 1 byte pointer_field + 3 bytes section header = 4 bytes
+    // If payload is N bytes, remaining after header = N - 4
+    // Section completes when section_length == remaining bytes
+    //
+    // For section_length = 13 (a minimal PAT with 1 program):
+    //   section_length (13) = 5 bytes common header + 4 bytes program entry + 4 bytes CRC
+    // Payload needed: 1 (pointer) + 3 (section header) + 13 (section content) = 17 bytes
+    // So if we create a packet with exactly 17 bytes payload, section exactly fits.
+
+    uint16_t sectionLength = 13;  // 5 header + 4 payload + 4 CRC
+
+    NSMutableData *packet = [NSMutableData dataWithLength:TS_PACKET_SIZE_188];
+    uint8_t *bytes = packet.mutableBytes;
+
+    // TS Header (4 bytes)
+    bytes[0] = TS_PACKET_HEADER_SYNC_BYTE;
+    bytes[1] = 0x40;  // PUSI=1, PID=0
+    bytes[2] = 0x00;
+    bytes[3] = 0x30;  // Adaptation + Payload, CC=0
+
+    // Adaptation field to reduce payload to exactly 17 bytes
+    // Total packet: 188 bytes, header: 4 bytes, desired payload: 17 bytes
+    // Adaptation field: 188 - 4 - 17 = 167 bytes
+    // adaptation_field_length = 166 (one less than total size)
+    bytes[4] = 166;   // adaptation_field_length
+    bytes[5] = 0x00;  // flags (no optional fields)
+    // Fill adaptation stuffing: bytes 6 through 170 (165 bytes)
+    for (int i = 6; i < 171; i++) {
+        bytes[i] = 0xFF;
+    }
+
+    // Payload starts at byte 171, exactly 17 bytes
+    NSUInteger offset = 171;
+
+    // Pointer field = 0 (new section starts immediately)
+    bytes[offset++] = 0x00;
+
+    // PSI section header
+    bytes[offset++] = 0x00;  // table_id (PAT)
+    bytes[offset++] = 0xB0 | ((sectionLength >> 8) & 0x0F);  // section_syntax_indicator + length high
+    bytes[offset++] = sectionLength & 0xFF;  // length low
+
+    // Section data (5 bytes common header)
+    bytes[offset++] = 0x00;  // transport_stream_id high
+    bytes[offset++] = 0x01;  // transport_stream_id low
+    bytes[offset++] = 0xC1;  // reserved + version 0 + current_next=1
+    bytes[offset++] = 0x00;  // section_number
+    bytes[offset++] = 0x00;  // last_section_number
+
+    // Program entry (4 bytes): program_number=1, pmt_pid=0x1000
+    bytes[offset++] = 0x00;  // program_number high
+    bytes[offset++] = 0x01;  // program_number low
+    bytes[offset++] = 0xE0 | ((0x1000 >> 8) & 0x1F);  // reserved + pmt_pid high
+    bytes[offset++] = 0x1000 & 0xFF;  // pmt_pid low
+
+    // CRC32 (4 bytes) - dummy value
+    bytes[offset++] = 0x12;
+    bytes[offset++] = 0x34;
+    bytes[offset++] = 0x56;
+    bytes[offset++] = 0x78;
+
+    XCTAssertEqual(offset, TS_PACKET_SIZE_188, @"Packet should be exactly 188 bytes");
+
+    // Parse and feed to builder
+    NSArray<TSPacket *> *packets = [TSPacket packetsFromChunkedTsData:packet packetSize:TS_PACKET_SIZE_188];
+    XCTAssertEqual(packets.count, 1);
+    XCTAssertEqual(packets[0].payload.length, 17, @"Payload should be exactly 17 bytes");
+
+    [builder addTsPacket:packets[0]];
+
+    // BUG: Section is incorrectly stored as sectionInProgress instead of delivered
+    XCTAssertEqual(self.receivedTables.count, 1, @"Section that exactly fits should be delivered immediately");
+    XCTAssertEqual(self.receivedTables[0].tableId, 0x00);
+    XCTAssertEqual(self.receivedTables[0].sectionLength, sectionLength);
+}
+
+- (void)test_consecutivePatsWithExactFit_bothDelivered {
+    // Regression test: Two consecutive PATs where each exactly fills its packet.
+    // Before fix: First PAT stored as sectionInProgress, second PAT triggers
+    // "Discarding incomplete PSI section" and first PAT is lost.
+    TSPsiTableBuilder *builder = [[TSPsiTableBuilder alloc] initWithDelegate:self pid:0x00];
+
+    // Helper to create a PAT packet with exact payload fit
+    NSData *(^createExactFitPatPacket)(uint8_t cc) = ^(uint8_t cc) {
+        uint16_t sectionLength = 13;
+
+        NSMutableData *packet = [NSMutableData dataWithLength:TS_PACKET_SIZE_188];
+        uint8_t *bytes = packet.mutableBytes;
+
+        bytes[0] = TS_PACKET_HEADER_SYNC_BYTE;
+        bytes[1] = 0x40;  // PUSI=1, PID=0
+        bytes[2] = 0x00;
+        bytes[3] = 0x30 | (cc & 0x0F);  // Adaptation + Payload
+
+        // Adaptation field: 166 bytes to leave 17 bytes for payload
+        bytes[4] = 166;
+        bytes[5] = 0x00;
+        for (int i = 6; i < 171; i++) {
+            bytes[i] = 0xFF;
+        }
+
+        NSUInteger offset = 171;
+        bytes[offset++] = 0x00;  // pointer_field
+        bytes[offset++] = 0x00;  // table_id (PAT)
+        bytes[offset++] = 0xB0 | ((sectionLength >> 8) & 0x0F);
+        bytes[offset++] = sectionLength & 0xFF;
+        bytes[offset++] = 0x00; bytes[offset++] = 0x01;  // transport_stream_id
+        bytes[offset++] = 0xC1;  // version 0
+        bytes[offset++] = 0x00; bytes[offset++] = 0x00;  // section nums
+        bytes[offset++] = 0x00; bytes[offset++] = 0x01;  // program_number
+        bytes[offset++] = 0xF0; bytes[offset++] = 0x00;  // pmt_pid
+        bytes[offset++] = 0x12; bytes[offset++] = 0x34;  // CRC
+        bytes[offset++] = 0x56; bytes[offset++] = 0x78;
+
+        return packet;
+    };
+
+    // First PAT
+    NSData *packet1Data = createExactFitPatPacket(0);
+    NSArray<TSPacket *> *packets1 = [TSPacket packetsFromChunkedTsData:packet1Data packetSize:TS_PACKET_SIZE_188];
+    [builder addTsPacket:packets1[0]];
+
+    XCTAssertEqual(self.receivedTables.count, 1, @"First PAT should be delivered");
+
+    // Second PAT (simulates periodic PSI resend)
+    NSData *packet2Data = createExactFitPatPacket(1);
+    NSArray<TSPacket *> *packets2 = [TSPacket packetsFromChunkedTsData:packet2Data packetSize:TS_PACKET_SIZE_188];
+    [builder addTsPacket:packets2[0]];
+
+    // BUG: Before fix, second PAT causes "Discarding incomplete PSI section"
+    // and only one table is received instead of two
+    XCTAssertEqual(self.receivedTables.count, 2, @"Both PATs should be delivered");
+}
+
 - (void)test_versionChange_discardsOldSections {
     TSPsiTableBuilder *builder = [[TSPsiTableBuilder alloc] initWithDelegate:self pid:0x00];
 

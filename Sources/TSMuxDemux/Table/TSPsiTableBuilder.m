@@ -172,7 +172,7 @@
             break;
         }
 
-        BOOL tableFitsInCurrentPacket = remainingBytesInTable < remainingBytesInPacket;
+        BOOL tableFitsInCurrentPacket = remainingBytesInTable <= remainingBytesInPacket;
         if (tableFitsInCurrentPacket) {
             NSData *readSectionDataNoCrc = [tsPacket.payload subdataWithRange:
                                                         NSMakeRange(offset, remainingBytesInTable - PSI_CRC_LEN)];
