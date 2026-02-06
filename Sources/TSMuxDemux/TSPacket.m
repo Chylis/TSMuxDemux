@@ -226,24 +226,45 @@
         adaptationFieldExtensionFlag = TSBitReaderReadBits(&reader, 1) != 0;
 
         // Parse PCR (48 bits) if present: 33-bit base + 6 reserved + 9-bit extension
-        if (pcrFlag && TSBitReaderHasBits(&reader, 48)) {
+        if (pcrFlag) {
             pcrBase = ((uint64_t)TSBitReaderReadBits(&reader, 32) << 1) | TSBitReaderReadBits(&reader, 1);
             TSBitReaderSkipBits(&reader, 6);  // Reserved bits
             pcrExt = TSBitReaderReadBits(&reader, 9);
         }
 
-        // TODO: Parse OPCR (48 bits) if oPcrFlag
-        // TODO: Parse splice_countdown (8 bits) if splicingPointFlag
-        // TODO: Parse transport_private_data if transportPrivateDataFlag
-        // TODO: Parse adaptation_field_extension if adaptationFieldExtensionFlag
+        // Skip OPCR (48 bits) if present
+        if (oPcrFlag) {
+            TSBitReaderSkipBits(&reader, 48);
+        }
+
+        // Skip splice_countdown (8 bits) if present
+        if (splicingPointFlag) {
+            TSBitReaderSkipBits(&reader, 8);
+        }
+
+        // Skip transport_private_data if present (length byte + data)
+        if (transportPrivateDataFlag) {
+            uint8_t transportPrivateDataLength = TSBitReaderReadUInt8(&reader);
+            TSBitReaderSkip(&reader, transportPrivateDataLength);
+        }
+
+        // Skip adaptation_field_extension if present (length byte + data)
+        if (adaptationFieldExtensionFlag) {
+            uint8_t adaptationFieldExtensionLength = TSBitReaderReadUInt8(&reader);
+            TSBitReaderSkip(&reader, adaptationFieldExtensionLength);
+        }
     }
 
-    // Calculate stuffing bytes
+    if (reader.error) {
+        TSLogError(@"Malformed adaptation field: read exceeded bounds");
+        return nil;
+    }
+
+    // Calculate stuffing bytes: total length minus bytes consumed after the length byte
     NSUInteger numberOfStuffedBytes = 0;
     if (adaptationFieldLength > 0) {
-        NSUInteger usedBytes = 1;  // flags byte
-        if (pcrFlag) usedBytes += 6;
-        numberOfStuffedBytes = (adaptationFieldLength > usedBytes) ? (adaptationFieldLength - usedBytes) : 0;
+        NSUInteger bytesConsumed = reader.byteOffset - 1;  // -1 excludes the length byte itself
+        numberOfStuffedBytes = (adaptationFieldLength > bytesConsumed) ? (adaptationFieldLength - bytesConsumed) : 0;
     }
 
     TSAdaptationField *adaptationField = [[TSAdaptationField alloc] initWithAdaptationFieldLength:adaptationFieldLength
@@ -364,6 +385,12 @@
         const TSPacketHeader *header = [TSPacketHeader initWithTsPacketData:tsPacketData];
         if (!header) {
             return nil;
+        }
+
+        // Skip packets with transport error indicator set - payload is unreliable
+        if (header.transportErrorIndicator) {
+            TSLogError(@"Skipping TS packet with transport error indicator set (PID=%u)", header.pid);
+            continue;
         }
 
         TSAdaptationField *adaptationField = nil;
