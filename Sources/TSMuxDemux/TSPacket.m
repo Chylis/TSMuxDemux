@@ -162,10 +162,11 @@
 
 +(instancetype _Nonnull)initWithPcrBase:(uint64_t)pcrBase
                                  pcrExt:(uint16_t)pcrExt
+                       randomAccessFlag:(BOOL)randomAccessFlag
                    remainingPayloadSize:(NSUInteger)remainingPayloadSize
 {
     const BOOL hasPcr = pcrBase > 0;
-    const BOOL shouldIncludeHeaderByte2 = hasPcr;
+    const BOOL shouldIncludeHeaderByte2 = hasPcr || randomAccessFlag;
     const BOOL singleByteStuffing = !shouldIncludeHeaderByte2 && remainingPayloadSize == 183;
 
     uint64_t numberOfBytesToStuff;
@@ -180,11 +181,11 @@
         numberOfBytesToStuff = remainingPacketSpace - packetPayloadSize;
         adaptationFieldTotalSize = adaptationHeaderSize + numberOfBytesToStuff;
     }
-    
+
     const uint8_t adaptationFieldLength = adaptationFieldTotalSize - 1;
     return [[TSAdaptationField alloc] initWithAdaptationFieldLength:adaptationFieldLength
                                                   discontinuityFlag:NO
-                                                   randomAccessFlag:NO
+                                                   randomAccessFlag:randomAccessFlag
                                                      esPriorityFlag:NO
                                                             pcrFlag:hasPcr
                                                            oPcrFlag:NO
@@ -294,9 +295,25 @@
     [data appendBytes:&adaptionHeaderByte1 length:1];
 
     if (self.adaptationFieldLength > 0) {
-        // FIXME MG: Consider discontinuity, random access, etc
-        // Adaption header byte 2:      flags indicating the presence of optional fields in the adaptation header
-        const uint8_t adaptionHeaderByte2 = self.pcrFlag ? 0b00010000 : 0b00000000;
+        // Adaption header byte 2: flags indicating the presence of optional fields in the adaptation header
+        // Per ISO/IEC 13818-1:
+        // Bit 7: discontinuity_indicator
+        // Bit 6: random_access_indicator
+        // Bit 5: elementary_stream_priority_indicator
+        // Bit 4: PCR_flag
+        // Bit 3: OPCR_flag
+        // Bit 2: splicing_point_flag
+        // Bit 1: transport_private_data_flag
+        // Bit 0: adaptation_field_extension_flag
+        const uint8_t adaptionHeaderByte2 =
+            (self.discontinuityFlag            ? 0b10000000 : 0) |
+            (self.randomAccessFlag             ? 0b01000000 : 0) |
+            (self.esPriorityFlag               ? 0b00100000 : 0) |
+            (self.pcrFlag                      ? 0b00010000 : 0) |
+            (self.oPcrFlag                     ? 0b00001000 : 0) |
+            (self.splicingPointFlag            ? 0b00000100 : 0) |
+            (self.transportPrivateDataFlag     ? 0b00000010 : 0) |
+            (self.adaptationFieldExtensionFlag ? 0b00000001 : 0);
         [data appendBytes:&adaptionHeaderByte2 length:1];
 
         if (self.pcrFlag) {
@@ -434,6 +451,7 @@
               forcePusi:(BOOL)forcePusi
                 pcrBase:(uint64_t)pcrBase
                  pcrExt:(uint16_t)pcrExt
+       randomAccessFlag:(BOOL)randomAccessFlag
          onTsPacketData:(OnTsPacketDataCallback _Nonnull)onTsPacketCb
 {
     const BOOL hasPcr = pcrBase > 0;
@@ -442,11 +460,16 @@
     while (remainingPayloadLength > 0) {
         const BOOL isFirstPacket = packetNumber == 0;
         const BOOL shouldSendPcr = hasPcr && isFirstPacket;
+        // RAI should only be set on the first packet of a PES (when PUSI=1).
+        // See ISO/IEC 13818-1 section 2.4.3.4: "random_access_indicator [...] indicates that the current
+        // transport stream packet [...] contain some information to aid random access at this point."
+        const BOOL shouldSetRai = randomAccessFlag && isFirstPacket;
         const BOOL needsStuffing = remainingPayloadLength < (TS_PACKET_SIZE_188 - TS_PACKET_HEADER_SIZE);
-        BOOL shouldIncludeAdaptationField = shouldSendPcr || needsStuffing;
+        BOOL shouldIncludeAdaptationField = shouldSendPcr || shouldSetRai || needsStuffing;
 
         NSData *adaptationField = shouldIncludeAdaptationField ? [[TSAdaptationField initWithPcrBase:pcrBase
                                                                                               pcrExt:pcrExt
+                                                                                    randomAccessFlag:shouldSetRai
                                                                                 remainingPayloadSize:remainingPayloadLength]
                                                                   getBytes] : nil;
 

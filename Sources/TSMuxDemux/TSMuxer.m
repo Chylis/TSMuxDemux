@@ -191,6 +191,7 @@
                              forcePusi:YES
                                pcrBase:0
                                 pcrExt:0
+                      randomAccessFlag:NO
                         onTsPacketData:onTsPacketCb];
             
             if (self.elementaryStreams.count > 0) {
@@ -203,6 +204,7 @@
                                  forcePusi:YES
                                    pcrBase:0
                                     pcrExt:0
+                          randomAccessFlag:NO
                             onTsPacketData:onTsPacketCb];
             }
             
@@ -219,7 +221,13 @@
         TSElementaryStream *track = [self elementaryStreamWithPid:accessUnit.pid];
         
         uint64_t pcr = [self maybeGetPcr:accessUnit];
-        [TSPacket packetizePayload:pesPacket track:track forcePusi:NO pcrBase:pcr pcrExt:0 onTsPacketData:onTsPacketCb];
+        [TSPacket packetizePayload:pesPacket
+                             track:track
+                         forcePusi:NO
+                           pcrBase:pcr
+                            pcrExt:0
+                  randomAccessFlag:accessUnit.isRandomAccessPoint
+                    onTsPacketData:onTsPacketCb];
     }
 }
 

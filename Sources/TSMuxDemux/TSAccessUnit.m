@@ -20,6 +20,7 @@
                                 pts:(CMTime)pts
                                 dts:(CMTime)dts
                     isDiscontinuous:(BOOL)isDiscontinuous
+                 isRandomAccessPoint:(BOOL)isRandomAccessPoint
                          streamType:(uint8_t)streamType
                         descriptors:(NSArray<TSDescriptor *> * _Nullable)descriptors
                      compressedData:(NSData * _Nonnull)compressedData
@@ -30,6 +31,7 @@
         _pts = pts;
         _dts = dts;
         _isDiscontinuous = isDiscontinuous;
+        _isRandomAccessPoint = isRandomAccessPoint;
         _streamType = streamType;
         _descriptors = descriptors;
         _compressedData = compressedData;

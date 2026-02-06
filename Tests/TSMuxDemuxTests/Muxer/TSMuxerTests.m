@@ -40,6 +40,7 @@ static const NSUInteger kMaxPayloadSize = 188 - 4 - 2;  // TS_PACKET_SIZE - HEAD
                          forcePusi:NO
                            pcrBase:0
                             pcrExt:0
+                  randomAccessFlag:NO
                     onTsPacketData:^(NSData * _Nonnull tsPacketData) {
             [packets addObject:tsPacketData];
         }];
@@ -92,6 +93,7 @@ static const NSUInteger kMaxPayloadSize = 188 - 4 - 2;  // TS_PACKET_SIZE - HEAD
                      forcePusi:NO
                        pcrBase:0
                         pcrExt:0
+              randomAccessFlag:NO
                 onTsPacketData:^(NSData * _Nonnull tsPacketData) {
         [packets addObject:tsPacketData];
     }];
@@ -149,6 +151,7 @@ static const NSUInteger kMaxPayloadSize = 188 - 4 - 2;  // TS_PACKET_SIZE - HEAD
                      forcePusi:NO
                        pcrBase:pcrBase
                         pcrExt:pcrExt
+              randomAccessFlag:NO
                 onTsPacketData:^(NSData * _Nonnull tsPacketData) {
         [packets addObject:tsPacketData];
     }];
@@ -185,6 +188,7 @@ static const NSUInteger kMaxPayloadSize = 188 - 4 - 2;  // TS_PACKET_SIZE - HEAD
                      forcePusi:YES
                        pcrBase:0
                         pcrExt:0
+              randomAccessFlag:NO
                 onTsPacketData:^(NSData * _Nonnull tsPacketData) {
         [packets addObject:tsPacketData];
     }];
@@ -220,6 +224,7 @@ static const NSUInteger kMaxPayloadSize = 188 - 4 - 2;  // TS_PACKET_SIZE - HEAD
                      forcePusi:NO
                        pcrBase:0
                         pcrExt:0
+              randomAccessFlag:NO
                 onTsPacketData:^(NSData * _Nonnull tsPacketData) {
         [packets addObject:tsPacketData];
     }];
@@ -425,6 +430,7 @@ static const NSUInteger kMaxPayloadSize = 188 - 4 - 2;  // TS_PACKET_SIZE - HEAD
         // Without PCR
         TSAdaptationField *field = [TSAdaptationField initWithPcrBase:0
                                                                pcrExt:0
+                                                     randomAccessFlag:NO
                                                  remainingPayloadSize:payloadSize];
         XCTAssertLessThanOrEqual(field.adaptationFieldLength, (uint8_t)182,
                                  @"With payload=%lu, adapLen should be <= 182", (unsigned long)payloadSize);
@@ -432,6 +438,7 @@ static const NSUInteger kMaxPayloadSize = 188 - 4 - 2;  // TS_PACKET_SIZE - HEAD
         // With PCR
         TSAdaptationField *fieldWithPcr = [TSAdaptationField initWithPcrBase:12345
                                                                       pcrExt:0
+                                                            randomAccessFlag:NO
                                                         remainingPayloadSize:payloadSize];
         XCTAssertLessThanOrEqual(fieldWithPcr.adaptationFieldLength, (uint8_t)182,
                                  @"With PCR and payload=%lu, adapLen should be <= 182", (unsigned long)payloadSize);
@@ -442,6 +449,7 @@ static const NSUInteger kMaxPayloadSize = 188 - 4 - 2;  // TS_PACKET_SIZE - HEAD
     // When no payload (remainingPayloadSize = 0), adaptationFieldLength should be 183
     TSAdaptationField *field = [TSAdaptationField initWithPcrBase:0
                                                            pcrExt:0
+                                                 randomAccessFlag:NO
                                              remainingPayloadSize:0];
     XCTAssertEqual(field.adaptationFieldLength, (uint8_t)183,
                    @"With no payload, adapLen should be 183");
@@ -449,6 +457,7 @@ static const NSUInteger kMaxPayloadSize = 188 - 4 - 2;  // TS_PACKET_SIZE - HEAD
     // With PCR
     TSAdaptationField *fieldWithPcr = [TSAdaptationField initWithPcrBase:12345
                                                                   pcrExt:0
+                                                        randomAccessFlag:NO
                                                     remainingPayloadSize:0];
     XCTAssertEqual(fieldWithPcr.adaptationFieldLength, (uint8_t)183,
                    @"With PCR and no payload, adapLen should be 183");
@@ -473,6 +482,7 @@ static const NSUInteger kMaxPayloadSize = 188 - 4 - 2;  // TS_PACKET_SIZE - HEAD
                          forcePusi:NO
                            pcrBase:0
                             pcrExt:0
+                  randomAccessFlag:NO
                     onTsPacketData:^(NSData * _Nonnull tsPacketData) {
             [packets addObject:tsPacketData];
         }];

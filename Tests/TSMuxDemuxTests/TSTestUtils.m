@@ -237,6 +237,7 @@
                                                      pts:pts
                                                      dts:kCMTimeInvalid
                                          isDiscontinuous:NO
+                                      isRandomAccessPoint:NO
                                               streamType:track.streamType
                                              descriptors:track.descriptors
                                           compressedData:payload];
@@ -250,6 +251,7 @@
                      forcePusi:NO
                        pcrBase:0
                         pcrExt:0
+              randomAccessFlag:NO
                 onTsPacketData:^(NSData * _Nonnull tsPacketData) {
         [result appendData:tsPacketData];
     }];

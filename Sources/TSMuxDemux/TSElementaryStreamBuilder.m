@@ -19,6 +19,7 @@
 @property(nonatomic) CMTime pts;
 @property(nonatomic) CMTime dts;
 @property(nonatomic) BOOL isDiscontinuous;
+@property(nonatomic) BOOL isRandomAccessPoint;
 @property(nonatomic, strong) NSMutableData *collectedData;
 @property(nonatomic) TSResolvedStreamType resolvedStreamType;
 @property(nonatomic) BOOL isVideo;
@@ -107,6 +108,7 @@
                                                                          pts:self.pts
                                                                          dts:self.dts
                                                              isDiscontinuous:self.isDiscontinuous
+                                                          isRandomAccessPoint:self.isRandomAccessPoint
                                                                   streamType:self.streamType
                                                                  descriptors:self.descriptors
                                                               compressedData:self.collectedData];
@@ -118,6 +120,7 @@
             self.pts = pesHeader.pts;
             self.dts = pesHeader.dts;
             self.isDiscontinuous = pesHeader.isDiscontinuous;
+            self.isRandomAccessPoint = tsPacket.adaptationField.randomAccessFlag;
 
             // Estimate capacity to minimize reallocations during accumulation.
             NSUInteger capacity;

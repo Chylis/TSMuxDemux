@@ -72,7 +72,8 @@ typedef NS_ENUM(uint8_t, TSAdaptationMode) {
 
 +(instancetype _Nonnull)initWithPcrBase:(uint64_t)pcrBase
                                  pcrExt:(uint16_t)pcrExt
-                            remainingPayloadSize:(NSUInteger)remainingPayloadSize;
+                       randomAccessFlag:(BOOL)randomAccessFlag
+                   remainingPayloadSize:(NSUInteger)remainingPayloadSize;
 
 
 -(instancetype _Nonnull)initWithAdaptationFieldLength:(uint8_t)adaptationFieldLength
@@ -115,10 +116,12 @@ typedef void (^OnTsPacketDataCallback)(NSData * _Nonnull);
                                              packetSize:(NSUInteger)packetSize;
 
 /// Packetizes the received payload in N 188-byte long raw ts-data chunks and passes each chunk individually to the callback.
+/// @param randomAccessFlag If YES, the random_access_indicator will be set in the adaptation field of the first TS packet.
 +(void)packetizePayload:(NSData* _Nonnull)payload
                   track:(TSElementaryStream* _Nonnull)track
               forcePusi:(BOOL)forcePusi
                 pcrBase:(uint64_t)pcrBase
                  pcrExt:(uint16_t)pcrExt
+       randomAccessFlag:(BOOL)randomAccessFlag
          onTsPacketData:(OnTsPacketDataCallback _Nonnull)onTsPacketDataCb;
 @end

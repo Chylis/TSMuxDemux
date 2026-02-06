@@ -26,6 +26,10 @@
 /// Set to true if the ts packet is flagged as discontinuous. Should be used as a hint to e.g. reset PTS-anchors etc.
 @property(nonatomic, readonly) BOOL isDiscontinuous;
 
+/// Set to true if this access unit is a random access point (e.g., IDR frame for H.264/H.265).
+/// When true, the random_access_indicator will be set in the adaptation field of the first TS packet.
+@property(nonatomic, readonly) BOOL isRandomAccessPoint;
+
 /// Raw stream_type from PMT. Use resolvedStreamType for codec identification.
 @property(nonatomic, readonly) uint8_t streamType;
 @property(nonatomic, readonly, nullable) NSArray<TSDescriptor*> *descriptors;
@@ -36,6 +40,7 @@
                                 pts:(CMTime)pts
                                 dts:(CMTime)dts
                     isDiscontinuous:(BOOL)isDiscontinuous
+                 isRandomAccessPoint:(BOOL)isRandomAccessPoint
                          streamType:(uint8_t)streamType
                          descriptors:(NSArray<TSDescriptor*>* _Nullable)descriptors
                      compressedData:(NSData* _Nonnull)compressedData;
