@@ -27,6 +27,16 @@
 /// Defaults to 250 ms.
 @property(nonatomic) NSUInteger psiIntervalMs;
 
+/// Target bitrate in kilobits per second for CBR null packet stuffing.
+/// When set to 0 (default), the muxer operates in VBR mode (no null packets).
+/// When > 0, null packets (PID 0x1FFF) are inserted after each mux call to
+/// maintain the target bitrate.
+@property(nonatomic) NSUInteger targetBitrateKbps;
+
+/// Maximum number of queued access units before oldest are dropped.
+/// When 0, the queue is unlimited. Defaults to 300.
+@property(nonatomic) NSUInteger maxNumQueuedAccessUnits;
+
 @end
 
 /// A (basic) "single program" transport stream muxer.
@@ -37,6 +47,10 @@
 
 /// Initial muxer settings - cannot be modified after initialisation.
 @property(nonatomic, readonly, nonnull) TSMuxerSettings *settings;
+
+/// Clock source for the muxer. Returns the current time in nanoseconds.
+/// Defaults to [TSTimeUtil nowHostTimeNanos]. Override for deterministic testing.
+@property(nonatomic, copy, nonnull) uint64_t (^nowNanosProvider)(void);
 
 /// Throws upon validation error on other initialisation error.
 -(instancetype _Nonnull)initWithSettings:(TSMuxerSettings * _Nonnull)settings

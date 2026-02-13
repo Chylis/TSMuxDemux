@@ -251,6 +251,7 @@
                      forcePusi:NO
                        pcrBase:0
                         pcrExt:0
+             discontinuityFlag:NO
               randomAccessFlag:NO
                 onTsPacketData:^(NSData * _Nonnull tsPacketData) {
         [result appendData:tsPacketData];

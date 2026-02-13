@@ -72,6 +72,7 @@ typedef NS_ENUM(uint8_t, TSAdaptationMode) {
 
 +(instancetype _Nonnull)initWithPcrBase:(uint64_t)pcrBase
                                  pcrExt:(uint16_t)pcrExt
+                      discontinuityFlag:(BOOL)discontinuityFlag
                        randomAccessFlag:(BOOL)randomAccessFlag
                    remainingPayloadSize:(NSUInteger)remainingPayloadSize;
 
@@ -116,12 +117,19 @@ typedef void (^OnTsPacketDataCallback)(NSData * _Nonnull);
                                              packetSize:(NSUInteger)packetSize;
 
 /// Packetizes the received payload in N 188-byte long raw ts-data chunks and passes each chunk individually to the callback.
+/// @param discontinuityFlag If YES, the discontinuity_indicator will be set in the adaptation field of the first TS packet.
 /// @param randomAccessFlag If YES, the random_access_indicator will be set in the adaptation field of the first TS packet.
 +(void)packetizePayload:(NSData* _Nonnull)payload
                   track:(TSElementaryStream* _Nonnull)track
               forcePusi:(BOOL)forcePusi
                 pcrBase:(uint64_t)pcrBase
                  pcrExt:(uint16_t)pcrExt
+      discontinuityFlag:(BOOL)discontinuityFlag
        randomAccessFlag:(BOOL)randomAccessFlag
          onTsPacketData:(OnTsPacketDataCallback _Nonnull)onTsPacketDataCb;
+
+/// Returns a pre-built 188-byte null packet (PID 0x1FFF, payload-only, all-0xFF payload).
+/// The returned NSData is a singleton — safe to call repeatedly without allocation overhead.
++(NSData* _Nonnull)nullPacketData;
+
 @end

@@ -162,11 +162,12 @@
 
 +(instancetype _Nonnull)initWithPcrBase:(uint64_t)pcrBase
                                  pcrExt:(uint16_t)pcrExt
+                      discontinuityFlag:(BOOL)discontinuityFlag
                        randomAccessFlag:(BOOL)randomAccessFlag
                    remainingPayloadSize:(NSUInteger)remainingPayloadSize
 {
     const BOOL hasPcr = pcrBase > 0;
-    const BOOL shouldIncludeHeaderByte2 = hasPcr || randomAccessFlag;
+    const BOOL shouldIncludeHeaderByte2 = hasPcr || discontinuityFlag || randomAccessFlag;
     const BOOL singleByteStuffing = !shouldIncludeHeaderByte2 && remainingPayloadSize == 183;
 
     uint64_t numberOfBytesToStuff;
@@ -184,7 +185,7 @@
 
     const uint8_t adaptationFieldLength = adaptationFieldTotalSize - 1;
     return [[TSAdaptationField alloc] initWithAdaptationFieldLength:adaptationFieldLength
-                                                  discontinuityFlag:NO
+                                                  discontinuityFlag:discontinuityFlag
                                                    randomAccessFlag:randomAccessFlag
                                                      esPriorityFlag:NO
                                                             pcrFlag:hasPcr
@@ -451,6 +452,7 @@
               forcePusi:(BOOL)forcePusi
                 pcrBase:(uint64_t)pcrBase
                  pcrExt:(uint16_t)pcrExt
+      discontinuityFlag:(BOOL)discontinuityFlag
        randomAccessFlag:(BOOL)randomAccessFlag
          onTsPacketData:(OnTsPacketDataCallback _Nonnull)onTsPacketCb
 {
@@ -464,11 +466,13 @@
         // See ISO/IEC 13818-1 section 2.4.3.4: "random_access_indicator [...] indicates that the current
         // transport stream packet [...] contain some information to aid random access at this point."
         const BOOL shouldSetRai = randomAccessFlag && isFirstPacket;
+        const BOOL shouldSetDiscontinuity = discontinuityFlag && isFirstPacket;
         const BOOL needsStuffing = remainingPayloadLength < (TS_PACKET_SIZE_188 - TS_PACKET_HEADER_SIZE);
-        BOOL shouldIncludeAdaptationField = shouldSendPcr || shouldSetRai || needsStuffing;
+        BOOL shouldIncludeAdaptationField = shouldSendPcr || shouldSetRai || shouldSetDiscontinuity || needsStuffing;
 
         NSData *adaptationField = shouldIncludeAdaptationField ? [[TSAdaptationField initWithPcrBase:pcrBase
                                                                                               pcrExt:pcrExt
+                                                                                   discontinuityFlag:shouldSetDiscontinuity
                                                                                     randomAccessFlag:shouldSetRai
                                                                                 remainingPayloadSize:remainingPayloadLength]
                                                                   getBytes] : nil;
@@ -503,4 +507,21 @@
         packetNumber = packetNumber + 1;
     }
 }
+
++(NSData*)nullPacketData
+{
+    static NSData *nullPacket = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        uint8_t bytes[TS_PACKET_SIZE_188];
+        memset(bytes, 0xFF, TS_PACKET_SIZE_188);
+        bytes[0] = TS_PACKET_HEADER_SYNC_BYTE; // 0x47
+        bytes[1] = 0x1F;                        // PID high 5 bits (0x1FFF >> 8)
+        bytes[2] = 0xFF;                        // PID low 8 bits
+        bytes[3] = 0x10;                        // adaptation=01 (payload only), CC=0
+        nullPacket = [NSData dataWithBytes:bytes length:TS_PACKET_SIZE_188];
+    });
+    return nullPacket;
+}
+
 @end
