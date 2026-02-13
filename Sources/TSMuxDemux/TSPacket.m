@@ -524,4 +524,35 @@
     return nullPacket;
 }
 
+// NOTE: pcrBase == 0 is treated as "no PCR" by initWithPcrBase:, so a PCR value of exactly 0
+// will produce a packet without PCR. This is a pre-existing limitation — the muxer's first PCR
+// is always > 0 in practice, so this doesn't cause issues today.
++(NSData*)pcrPacketDataWithPid:(uint16_t)pid
+                 continuityCounter:(uint8_t)continuityCounter
+                           pcrBase:(uint64_t)pcrBase
+                            pcrExt:(uint16_t)pcrExt
+{
+    // Build header: adaptation-field-only (0x20), no payload
+    TSPacketHeader *header = [[TSPacketHeader alloc] initWithSyncByte:TS_PACKET_HEADER_SYNC_BYTE
+                                                                  tei:NO
+                                                                 pusi:NO
+                                                    transportPriority:NO
+                                                                  pid:pid
+                                                          isScrambled:NO
+                                                       adaptationMode:TSAdaptationModeAdaptationOnly
+                                                    continuityCounter:continuityCounter];
+
+    // Build adaptation field: PCR + stuffing to fill 188 bytes. remainingPayloadSize=0 → fills entire packet.
+    TSAdaptationField *af = [TSAdaptationField initWithPcrBase:pcrBase
+                                                        pcrExt:pcrExt
+                                             discontinuityFlag:NO
+                                              randomAccessFlag:NO
+                                          remainingPayloadSize:0];
+
+    NSMutableData *packet = [NSMutableData dataWithCapacity:TS_PACKET_SIZE_188];
+    [packet appendData:[header getBytes]];
+    [packet appendData:[af getBytes]];
+    return packet;
+}
+
 @end

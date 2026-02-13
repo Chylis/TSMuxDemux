@@ -161,12 +161,24 @@ static NSUInteger countNullPackets(NSArray<NSData*> *packets) {
     TSMuxerSettings *settings = [[TSMuxerSettings alloc] init];
     TSMuxer *muxer = [[TSMuxer alloc] initWithSettings:settings delegate:delegate];
 
-    [muxer mux:makeVideoAU(256, 0.0, 100)];
+    [muxer enqueueAccessUnit:makeVideoAU(256, 0.0, 100)];
+    [muxer tick];
 
     XCTAssertGreaterThan(delegate.packets.count, (NSUInteger)0, @"VBR muxer should emit packets");
     for (NSData *packet in delegate.packets) {
         XCTAssertEqual(packet.length, (NSUInteger)TS_PACKET_SIZE_188);
     }
+}
+
+- (void)test_vbr_enqueueDoesNotEmit {
+    TSMuxerTestDelegate *delegate = [[TSMuxerTestDelegate alloc] init];
+    TSMuxerSettings *settings = [[TSMuxerSettings alloc] init];
+    TSMuxer *muxer = [[TSMuxer alloc] initWithSettings:settings delegate:delegate];
+
+    [muxer enqueueAccessUnit:makeVideoAU(256, 0.0, 100)];
+
+    XCTAssertEqual(delegate.packets.count, (NSUInteger)0,
+                   @"enqueueAccessUnit should not emit packets without tick");
 }
 
 #pragma mark - CBR Packet Emission
@@ -180,14 +192,16 @@ static NSUInteger countNullPackets(NSArray<NSData*> *packets) {
     __block uint64_t mockTimeNanos = 1000000000ULL; // 1s
     muxer.nowNanosProvider = ^{ return mockTimeNanos; };
 
-    // First mux call — sets firstOutputTimeNanos, emits 0 packets (elapsed = 0)
-    [muxer mux:makeVideoAU(256, 0.0, 100)];
+    // First tick — sets firstOutputTimeNanos, emits 0 packets (elapsed = 0)
+    [muxer enqueueAccessUnit:makeVideoAU(256, 0.0, 100)];
+    [muxer tick];
     NSUInteger countAfterFirst = delegate.packets.count;
-    XCTAssertEqual(countAfterFirst, (NSUInteger)0, @"No packets on first CBR call");
+    XCTAssertEqual(countAfterFirst, (NSUInteger)0, @"No packets on first CBR tick");
 
     // Advance 50ms
     mockTimeNanos += 50000000ULL;
-    [muxer mux:makeVideoAU(256, 0.04, 100)];
+    [muxer enqueueAccessUnit:makeVideoAU(256, 0.04, 100)];
+    [muxer tick];
 
     XCTAssertGreaterThan(delegate.packets.count, countAfterFirst,
                          @"CBR muxer should emit packets after time passes");
@@ -207,11 +221,13 @@ static NSUInteger countNullPackets(NSArray<NSData*> *packets) {
     muxer.nowNanosProvider = ^{ return mockTimeNanos; };
 
     // Feed one small AU
-    [muxer mux:makeVideoAU(256, 0.0, 10)];
+    [muxer enqueueAccessUnit:makeVideoAU(256, 0.0, 10)];
+    [muxer tick];
 
     // Advance 50ms
     mockTimeNanos += 50000000ULL;
-    [muxer mux:makeVideoAU(256, 0.04, 10)];
+    [muxer enqueueAccessUnit:makeVideoAU(256, 0.04, 10)];
+    [muxer tick];
 
     NSUInteger nullCount = countNullPackets(delegate.packets);
     XCTAssertGreaterThan(nullCount, (NSUInteger)0,
@@ -228,11 +244,13 @@ static NSUInteger countNullPackets(NSArray<NSData*> *packets) {
     __block uint64_t mockTimeNanos = 1000000000ULL;
     muxer.nowNanosProvider = ^{ return mockTimeNanos; };
 
-    [muxer mux:makeVideoAU(256, 0.0, 100)];
+    [muxer enqueueAccessUnit:makeVideoAU(256, 0.0, 100)];
+    [muxer tick];
 
     // Advance 100ms (2x PSI interval)
     mockTimeNanos += 100000000ULL;
-    [muxer mux:makeVideoAU(256, 0.1, 100)];
+    [muxer enqueueAccessUnit:makeVideoAU(256, 0.1, 100)];
+    [muxer tick];
 
     BOOL foundPat = NO;
     BOOL foundPmt = NO;
@@ -260,12 +278,13 @@ static NSUInteger countNullPackets(NSArray<NSData*> *packets) {
 
     // Feed 10 AUs rapidly. With 1 kbps, almost no packets are drained between calls.
     for (int i = 0; i < 10; i++) {
-        [muxer mux:makeVideoAU(256, i * 0.04, 10)];
+        [muxer enqueueAccessUnit:makeVideoAU(256, i * 0.04, 10)];
+        [muxer tick];
     }
 
     // Advance a bit and verify muxer still functions
     mockTimeNanos += 10000000ULL;
-    XCTAssertNoThrow([muxer mux:makeVideoAU(256, 0.5, 10)],
+    XCTAssertNoThrow([muxer enqueueAccessUnit:makeVideoAU(256, 0.5, 10)],
                      @"Muxer should still accept AUs after queue overflow");
 }
 
@@ -359,8 +378,9 @@ static NSUInteger countNullPackets(NSArray<NSData*> *packets) {
     TSMuxer *muxer = [[TSMuxer alloc] initWithSettings:settings delegate:delegate];
 
     for (int i = 0; i < 10; i++) {
-        [muxer mux:makeVideoAU(256, i * 0.04, 50)];
+        [muxer enqueueAccessUnit:makeVideoAU(256, i * 0.04, 50)];
     }
+    [muxer tick];
 
     XCTAssertGreaterThan(delegate.packets.count, (NSUInteger)0,
                          @"VBR muxer should emit packets even with small queue limit");
@@ -377,17 +397,93 @@ static NSUInteger countNullPackets(NSArray<NSData*> *packets) {
     __block uint64_t mockTimeNanos = 1000000000ULL;
     muxer.nowNanosProvider = ^{ return mockTimeNanos; };
 
-    [muxer mux:makeVideoAU(256, 0.0, 100)];
-    XCTAssertEqual(delegate.packets.count, (NSUInteger)0, @"No packets on first CBR call");
+    [muxer enqueueAccessUnit:makeVideoAU(256, 0.0, 100)];
+    [muxer tick];
+    XCTAssertEqual(delegate.packets.count, (NSUInteger)0, @"No packets on first CBR tick");
 
     // Advance exactly 100ms
     mockTimeNanos += 100000000ULL;
-    [muxer mux:makeVideoAU(256, 0.1, 100)];
+    [muxer enqueueAccessUnit:makeVideoAU(256, 0.1, 100)];
+    [muxer tick];
 
     NSUInteger expected = expectedPacketCount(5000, 0.1);
     XCTAssertEqual(delegate.packets.count, expected,
                    @"Packet count should exactly match expected for 5 Mbps over 100ms (expected %lu, got %lu)",
                    (unsigned long)expected, (unsigned long)delegate.packets.count);
+}
+
+#pragma mark - Tick-only Emission
+
+- (void)test_cbr_tickWithoutEnqueue_emitsNullPackets {
+    TSMuxerTestDelegate *delegate = [[TSMuxerTestDelegate alloc] init];
+    TSMuxerSettings *settings = [[TSMuxerSettings alloc] init];
+    settings.targetBitrateKbps = 5000;
+    TSMuxer *muxer = [[TSMuxer alloc] initWithSettings:settings delegate:delegate];
+
+    __block uint64_t mockTimeNanos = 1000000000ULL;
+    muxer.nowNanosProvider = ^{ return mockTimeNanos; };
+
+    // First tick — sets firstOutputTimeNanos
+    [muxer tick];
+    XCTAssertEqual(delegate.packets.count, (NSUInteger)0, @"No packets on first CBR tick");
+
+    // Advance 100ms — tick without any enqueued AUs
+    mockTimeNanos += 100000000ULL;
+    [muxer tick];
+
+    NSUInteger expected = expectedPacketCount(5000, 0.1);
+    XCTAssertEqual(delegate.packets.count, expected,
+                   @"tick without AUs should still emit packets to maintain CBR");
+
+    NSUInteger nullCount = countNullPackets(delegate.packets);
+    XCTAssertGreaterThan(nullCount, (NSUInteger)0,
+                         @"tick without AUs should emit null packets");
+}
+
+#pragma mark - PCR During Null Stretches
+
+- (void)test_cbr_pcrEmittedDuringNullStretches {
+    TSMuxerTestDelegate *delegate = [[TSMuxerTestDelegate alloc] init];
+    TSMuxerSettings *settings = [[TSMuxerSettings alloc] init];
+    settings.targetBitrateKbps = 5000;
+    TSMuxer *muxer = [[TSMuxer alloc] initWithSettings:settings delegate:delegate];
+
+    const uint16_t videoPid = 256;
+    __block uint64_t mockTimeNanos = 1000000000ULL;
+    muxer.nowNanosProvider = ^{ return mockTimeNanos; };
+
+    // Enqueue one video AU to establish pcrPid and emit a first PCR
+    [muxer enqueueAccessUnit:makeVideoAU(videoPid, 0.0, 100)];
+    [muxer tick];
+
+    // Advance 50ms to drain the AU and establish PCR baseline
+    mockTimeNanos += 50000000ULL;
+    [muxer tick];
+    [delegate.packets removeAllObjects];
+
+    // Advance another 100ms with NO enqueued AUs — should get PCR-only packets
+    mockTimeNanos += 100000000ULL;
+    [muxer tick];
+
+    BOOL foundPcrOnVideoPid = NO;
+    for (NSData *packet in delegate.packets) {
+        const uint8_t *bytes = packet.bytes;
+        uint16_t pid = ((bytes[1] & 0x1F) << 8) | bytes[2];
+        if (pid != videoPid) continue;
+
+        // Check adaptation field has PCR flag
+        uint8_t adaptationControl = (bytes[3] & 0x30) >> 4;
+        if (adaptationControl == 0x02 || adaptationControl == 0x03) {
+            uint8_t adaptationFlags = bytes[5];
+            BOOL pcrFlag = (adaptationFlags & 0x10) != 0;
+            if (pcrFlag) {
+                foundPcrOnVideoPid = YES;
+                break;
+            }
+        }
+    }
+    XCTAssertTrue(foundPcrOnVideoPid,
+                  @"PCR-only packets should be emitted on the video PID during null stretches");
 }
 
 @end

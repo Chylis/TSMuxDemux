@@ -86,6 +86,9 @@
 /// PIDs that need their next emitted packet to carry the discontinuity flag.
 @property(nonatomic, readonly, nonnull) NSMutableSet<NSNumber*> *discontinuousPids;
 
+/// Virtual stream time (ms) when the last PCR was emitted. Used to emit PCR during null stretches.
+@property(nonatomic) uint64_t lastPcrVirtualTimeMs;
+
 /// Stats
 @property(nonatomic) uint64_t statsLastLogTimeMs;
 @property(nonatomic) uint64_t statsTsPacketCount;
@@ -187,17 +190,17 @@
     return nil;
 }
 
--(void)mux:(TSAccessUnit *)accessUnit
+-(void)enqueueAccessUnit:(TSAccessUnit *)accessUnit
 {
     if ([TSPidUtil isCustomPidInvalid:accessUnit.pid] || accessUnit.pid == _settings.pmtPid) {
         [NSException raise:@"TSMuxerInvalidPidException" format:@"Pid is reserved/occupied/out of valid range"];
     }
-    
+
     BOOL hasSetPcrPid = self.pcrPid != 0;
     if (!hasSetPcrPid && [accessUnit isVideo]) {
         self.pcrPid = accessUnit.pid;
     }
-    
+
     TSElementaryStream *track = [self elementaryStreamWithPid:accessUnit.pid];
     if (!track) {
         track = [[TSElementaryStream alloc] initWithPid:accessUnit.pid
@@ -205,7 +208,7 @@
                                             descriptors:accessUnit.descriptors];
         [self addElementaryStream:track];
     }
-    
+
     [self.accessUnits addObject:accessUnit];
     self.statsAccessUnitCount++;
 
@@ -221,7 +224,10 @@
         self.statsDroppedAccessUnitCount += dropCount;
         TSLogWarn(@"Queue overflow: dropped %lu access units (PIDs: %@)", (unsigned long)dropCount, droppedPids);
     }
+}
 
+-(void)tick
+{
     if (_settings.targetBitrateKbps > 0) {
         [self doMuxCBR];
     } else {
@@ -323,7 +329,7 @@
 }
 
 #pragma mark - VBR
-// mux: → accessUnits → packetize → delegate (immediate, no pacing)
+// enqueueAccessUnit: → accessUnits; tick → packetize → delegate (immediate, no pacing)
 
 -(void)doMuxVBR
 {
@@ -345,10 +351,8 @@
 }
 
 #pragma mark - CBR
-// mux: → accessUnits → packetize → pendingTsPackets → paced out one-by-one at targetBitrateKbps.
-// PSI is emitted directly, not via pendingTsPackets.
-
-// FIXME MG: PCR is not emitted during null-only stretches (only emitted with video access units)
+// enqueueAccessUnit: → accessUnits; tick → packetize → pendingTsPackets → paced out one-by-one at targetBitrateKbps.
+// PSI and PCR-only packets are emitted directly, not via pendingTsPackets.
 
 /// Returns the number of TS packets that should have been emitted by `nowNanos`
 /// to maintain the target CBR. On the very first call (elapsed ≈ 0) this returns 0,
@@ -389,6 +393,8 @@
 
     const uint64_t expectedNumTsPacketsEmitted = [self expectedPacketCount:nowNanos];
     
+    // Each iteration either emits one or more packets (advancing numTsPacketsEmitted),
+    // or packetizes the next AU into pendingTsPackets for subsequent iterations.
     while (self.numTsPacketsEmitted < expectedNumTsPacketsEmitted) {
         const uint64_t virtualNowMs = [self virtualNowMs];
         if ([self isTimeToSendPsiTables:virtualNowMs]) {
@@ -412,9 +418,20 @@
                 [self.pendingTsPackets addObject:tsPacketData];
             }];
         } else {
-            // No content available — stuff with null packet to maintain CBR
-            self.statsNullPacketCount++;
-            [self emitTsPacket:[TSPacket nullPacketData]];
+            // No content available — stuff with null or PCR packet to maintain CBR
+            const uint64_t virtualNowMs = [self virtualNowMs];
+            if ([self shouldEmitPcrAtVirtualTimeMs:virtualNowMs]) {
+                uint64_t pcrBase = [self pcrBaseForVirtualTimeMs:virtualNowMs];
+                TSElementaryStream *pcrTrack = [self elementaryStreamWithPid:self.pcrPid];
+                [self emitTsPacket:[TSPacket pcrPacketDataWithPid:self.pcrPid
+                                               continuityCounter:pcrTrack ? pcrTrack.continuityCounter : 0
+                                                         pcrBase:pcrBase
+                                                          pcrExt:0]];
+                self.lastPcrVirtualTimeMs = virtualNowMs;
+            } else {
+                self.statsNullPacketCount++;
+                [self emitTsPacket:[TSPacket nullPacketData]];
+            }
         }
     }
 }
@@ -432,7 +449,7 @@
         return 0;
     }
     static const double pcrIntervalSeconds = 0.04;
-    
+
     const BOOL hasSentPcr = CMTIME_IS_VALID(self.firstSentPcr);
     const Float64 secondsElapsedSinceLastPcr = CMTimeGetSeconds(accessUnit.pts) - CMTimeGetSeconds(self.lastSentPcr);
     const BOOL isTimeToSendPcr = !hasSentPcr || secondsElapsedSinceLastPcr >= pcrIntervalSeconds;
@@ -444,9 +461,32 @@
     }
     const Float64 secondsElapsedSinceFirstPcr = CMTimeGetSeconds(accessUnit.pts) - CMTimeGetSeconds(self.firstSentPcr);
     const uint64_t pcr = secondsElapsedSinceFirstPcr * TS_TIMESTAMP_TIMESCALE;
-    
+
     self.lastSentPcr = accessUnit.pts;
+    if (_settings.targetBitrateKbps > 0) {
+        self.lastPcrVirtualTimeMs = [self virtualNowMs];
+    }
     return pcr;
+}
+
+#pragma mark - CBR PCR helpers
+
+static const uint64_t kPcrIntervalMs = 40;
+
+-(BOOL)shouldEmitPcrAtVirtualTimeMs:(uint64_t)virtualNowMs
+{
+    if (self.pcrPid == 0) return NO;
+    if (self.lastPcrVirtualTimeMs == 0) return NO; // No PCR sent yet — wait for first AU
+    return (virtualNowMs - self.lastPcrVirtualTimeMs) >= kPcrIntervalMs;
+}
+
+-(uint64_t)pcrBaseForVirtualTimeMs:(uint64_t)virtualNowMs
+{
+    // Derive PCR from virtual stream time relative to the first PCR
+    const Float64 firstPcrSeconds = CMTimeGetSeconds(self.firstSentPcr);
+    const double virtualNowSeconds = virtualNowMs / 1e3;
+    const double pcrSeconds = virtualNowSeconds - firstPcrSeconds;
+    return (uint64_t)(pcrSeconds * TS_TIMESTAMP_TIMESCALE);
 }
 
 @end

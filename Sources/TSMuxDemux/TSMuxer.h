@@ -27,10 +27,14 @@
 /// Defaults to 250 ms.
 @property(nonatomic) NSUInteger psiIntervalMs;
 
-/// Target bitrate in kilobits per second for CBR null packet stuffing.
-/// When set to 0 (default), the muxer operates in VBR mode (no null packets).
-/// When > 0, null packets (PID 0x1FFF) are inserted after each mux call to
-/// maintain the target bitrate.
+/// Target total TS output bitrate in kilobits per second.
+/// This is the wire-level rate including all TS overhead (packet headers, PES headers,
+/// adaptation fields, PSI tables, null stuffing) — not the content payload rate.
+/// Callers should configure their encoder bitrate below this value to leave room
+/// for TS overhead; otherwise the muxer's AU queue will overflow and drop access units.
+/// When set to 0 (default), the muxer operates in VBR mode (no pacing, no null packets).
+/// When > 0, the muxer operates in CBR mode: tick paces output at this rate, inserting
+/// null packets (PID 0x1FFF) when no content is available to maintain a constant bitrate.
 @property(nonatomic) NSUInteger targetBitrateKbps;
 
 /// Maximum number of queued access units before oldest are dropped.
@@ -56,9 +60,16 @@
 -(instancetype _Nonnull)initWithSettings:(TSMuxerSettings * _Nonnull)settings
                                 delegate:(id<TSMuxerDelegate> _Nullable)delegate;
 
-/// Feed the muxer with access units. The PTS and DTS of the access units should be
-/// in the local/host timescale (i.e. do NOT convert to MPEGTS timescale).
-/// (Currently) not thread safe - i.e. make sure you call this from the same thread.
--(void)mux:(TSAccessUnit* _Nonnull)accessUnit;
+/// Enqueue an access unit. Does NOT emit any packets.
+/// The PTS and DTS should be in the local/host timescale (i.e. do NOT convert to MPEGTS timescale).
+/// Not thread safe — call from the same thread/queue as tick.
+-(void)enqueueAccessUnit:(TSAccessUnit* _Nonnull)accessUnit;
+
+/// Emit packets up to the current wall-clock time.
+/// In CBR mode: paces content + null packets to maintain targetBitrateKbps.
+/// In VBR mode: flushes all queued access units immediately.
+/// The caller is responsible for calling this at a regular interval (e.g. every 10ms).
+/// Not thread safe — call from the same thread/queue as enqueueAccessUnit:.
+-(void)tick;
 
 @end

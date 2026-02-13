@@ -132,4 +132,11 @@ typedef void (^OnTsPacketDataCallback)(NSData * _Nonnull);
 /// The returned NSData is a singleton — safe to call repeatedly without allocation overhead.
 +(NSData* _Nonnull)nullPacketData;
 
+/// Returns a 188-byte adaptation-field-only packet carrying a PCR on the given PID.
+/// Used to maintain PCR continuity during null-packet stretches in CBR mode.
++(NSData* _Nonnull)pcrPacketDataWithPid:(uint16_t)pid
+                          continuityCounter:(uint8_t)continuityCounter
+                                    pcrBase:(uint64_t)pcrBase
+                                     pcrExt:(uint16_t)pcrExt;
+
 @end

@@ -145,7 +145,7 @@ The demuxer resolves raw PMT stream types and descriptors into `TSResolvedStream
 
 ## Muxer
 
-A "single program" muxer.
+A "single program" muxer. Supports VBR (default) and CBR modes.
 
 ### Usage
 
@@ -164,8 +164,9 @@ A "single program" muxer.
 2) **Optional:** Configure settings:
 ```objc
 TSMuxerSettings *settings = [[TSMuxerSettings alloc] init];
-settings.pmtPid = 4096;        // Default: 4096
-settings.psiIntervalMs = 250;  // Default: 250ms (TR 101 290 requires <= 500ms)
+settings.pmtPid = 4096;            // Default: 4096
+settings.psiIntervalMs = 250;      // Default: 250ms (TR 101 290 requires <= 500ms)
+settings.targetBitrateKbps = 35000; // Default: 0 (VBR). Set > 0 for CBR with null-packet stuffing.
 ```
 
 3) Create muxer:
@@ -173,24 +174,22 @@ settings.psiIntervalMs = 250;  // Default: 250ms (TR 101 290 requires <= 500ms)
 self.muxer = [[TSMuxer alloc] initWithSettings:settings delegate:self];
 ```
 
-4) Feed muxer with access units:
+4) Enqueue access units and call tick to emit packets:
 ```objc
--(void)didReceiveH264Sample:(H264Sample *)sample
-{
-    TSAccessUnit *au = [[TSAccessUnit alloc] initWithPid:sample.pid
-                                                     pts:sample.pts
-                                                     dts:sample.dts
-                                         isDiscontinuous:NO
-                                              streamType:kRawStreamTypeH264
-                                             descriptors:nil
-                                          compressedData:sample.data];
-    [self.muxer mux:au];
-}
+// Enqueue — does NOT emit any packets
+[self.muxer enqueueAccessUnit:au];
+
+// Tick — emits packets up to current wall-clock time
+// VBR: flushes all queued AUs immediately.
+// CBR: paces output with null-packet stuffing to maintain target bitrate.
+[self.muxer tick];
 ```
+
+The caller is responsible for calling `tick` at a regular interval (e.g. every 10ms) to keep CBR output paced. In VBR mode, calling `tick` right after each `enqueueAccessUnit:` is sufficient.
 
 ## Notes and Limitations
 
-- The muxer and demuxer are **not thread safe**. Ensure all calls are made from the same thread.
+- The muxer and demuxer are **not thread safe**. Ensure `enqueueAccessUnit:` and `tick` are called from the same serial queue/thread.
 - The muxer produces a single-program transport stream.
 
 ## References
