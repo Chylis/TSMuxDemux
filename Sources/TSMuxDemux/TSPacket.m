@@ -46,12 +46,12 @@
         TSLogError(@"Failed parsing ts-header - too few bytes: %lu", (unsigned long)tsPacketData.length);
         return nil;
     }
-
+    
     TSBitReader reader = TSBitReaderMake(tsPacketData);
-
+    
     // Byte 1: sync byte
     const uint8_t syncByte = TSBitReaderReadUInt8(&reader);
-
+    
     // Byte 2-3 bit fields:
     // - 1 bit: transport error indicator
     // - 1 bit: payload unit start indicator
@@ -61,7 +61,7 @@
     const BOOL payloadUnitStartIndicator = TSBitReaderReadBits(&reader, 1) != 0;
     const BOOL transportPriority = TSBitReaderReadBits(&reader, 1) != 0;
     const uint16_t pid = TSBitReaderReadBits(&reader, 13);
-
+    
     // Byte 4 bit fields:
     // - 2 bits: transport scrambling control
     // - 2 bits: adaptation field control
@@ -69,12 +69,12 @@
     const BOOL isScrambled = TSBitReaderReadBits(&reader, 2) != 0;
     const TSAdaptationMode adaptationMode = TSBitReaderReadBits(&reader, 2);
     const uint8_t continuityCounter = TSBitReaderReadBits(&reader, 4);
-
+    
     if (reader.error) {
         TSLogError(@"Failed parsing ts-header - read error");
         return nil;
     }
-
+    
     TSPacketHeader *header = [[TSPacketHeader alloc] initWithSyncByte:syncByte
                                                                   tei:transportErrorIndicator
                                                                  pusi:payloadUnitStartIndicator
@@ -129,8 +129,8 @@
 @implementation TSAdaptationField
 -(instancetype)initWithAdaptationFieldLength:(uint8_t)adaptationFieldLength
                            discontinuityFlag:(BOOL)discontinuityFlag
-                       randomAccessFlag:(BOOL)randomAccessFlag
-                         esPriorityFlag:(BOOL)esPriorityFlag
+                            randomAccessFlag:(BOOL)randomAccessFlag
+                              esPriorityFlag:(BOOL)esPriorityFlag
                                      pcrFlag:(BOOL)pcrFlag
                                     oPcrFlag:(BOOL)oPcrFlag
                            splicingPointFlag:(BOOL)splicingPointFlag
@@ -166,10 +166,10 @@
                        randomAccessFlag:(BOOL)randomAccessFlag
                    remainingPayloadSize:(NSUInteger)remainingPayloadSize
 {
-    const BOOL hasPcr = pcrBase > 0;
+    const BOOL hasPcr = pcrBase != kNoPcr;
     const BOOL shouldIncludeHeaderByte2 = hasPcr || discontinuityFlag || randomAccessFlag;
     const BOOL singleByteStuffing = !shouldIncludeHeaderByte2 && remainingPayloadSize == 183;
-
+    
     uint64_t numberOfBytesToStuff;
     NSUInteger adaptationFieldTotalSize;
     if (singleByteStuffing) {
@@ -182,7 +182,7 @@
         numberOfBytesToStuff = remainingPacketSpace - packetPayloadSize;
         adaptationFieldTotalSize = adaptationHeaderSize + numberOfBytesToStuff;
     }
-
+    
     const uint8_t adaptationFieldLength = adaptationFieldTotalSize - 1;
     return [[TSAdaptationField alloc] initWithAdaptationFieldLength:adaptationFieldLength
                                                   discontinuityFlag:discontinuityFlag
@@ -201,10 +201,10 @@
 +(instancetype)initWithTsPacketData:(NSData*)tsPacketData
 {
     TSBitReader reader = TSBitReaderMakeWithBytes((const uint8_t *)tsPacketData.bytes + TS_PACKET_HEADER_SIZE,
-                                                   tsPacketData.length - TS_PACKET_HEADER_SIZE);
-
+                                                  tsPacketData.length - TS_PACKET_HEADER_SIZE);
+    
     const uint8_t adaptationFieldLength = TSBitReaderReadUInt8(&reader);
-
+    
     BOOL discontinuityFlag = NO;
     BOOL randomAccessIndicator = NO;
     BOOL esPriorityIndicator = NO;
@@ -215,7 +215,7 @@
     BOOL adaptationFieldExtensionFlag = NO;
     uint64_t pcrBase = 0;
     uint16_t pcrExt = 0;
-
+    
     if (adaptationFieldLength > 0) {
         // Flags byte (8 single-bit flags)
         discontinuityFlag = TSBitReaderReadBits(&reader, 1) != 0;
@@ -226,49 +226,49 @@
         splicingPointFlag = TSBitReaderReadBits(&reader, 1) != 0;
         transportPrivateDataFlag = TSBitReaderReadBits(&reader, 1) != 0;
         adaptationFieldExtensionFlag = TSBitReaderReadBits(&reader, 1) != 0;
-
+        
         // Parse PCR (48 bits) if present: 33-bit base + 6 reserved + 9-bit extension
         if (pcrFlag) {
             pcrBase = ((uint64_t)TSBitReaderReadBits(&reader, 32) << 1) | TSBitReaderReadBits(&reader, 1);
             TSBitReaderSkipBits(&reader, 6);  // Reserved bits
             pcrExt = TSBitReaderReadBits(&reader, 9);
         }
-
+        
         // Skip OPCR (48 bits) if present
         if (oPcrFlag) {
             TSBitReaderSkipBits(&reader, 48);
         }
-
+        
         // Skip splice_countdown (8 bits) if present
         if (splicingPointFlag) {
             TSBitReaderSkipBits(&reader, 8);
         }
-
+        
         // Skip transport_private_data if present (length byte + data)
         if (transportPrivateDataFlag) {
             uint8_t transportPrivateDataLength = TSBitReaderReadUInt8(&reader);
             TSBitReaderSkip(&reader, transportPrivateDataLength);
         }
-
+        
         // Skip adaptation_field_extension if present (length byte + data)
         if (adaptationFieldExtensionFlag) {
             uint8_t adaptationFieldExtensionLength = TSBitReaderReadUInt8(&reader);
             TSBitReaderSkip(&reader, adaptationFieldExtensionLength);
         }
     }
-
+    
     if (reader.error) {
         TSLogError(@"Malformed adaptation field: read exceeded bounds");
         return nil;
     }
-
+    
     // Calculate stuffing bytes: total length minus bytes consumed after the length byte
     NSUInteger numberOfStuffedBytes = 0;
     if (adaptationFieldLength > 0) {
         NSUInteger bytesConsumed = reader.byteOffset - 1;  // -1 excludes the length byte itself
         numberOfStuffedBytes = (adaptationFieldLength > bytesConsumed) ? (adaptationFieldLength - bytesConsumed) : 0;
     }
-
+    
     TSAdaptationField *adaptationField = [[TSAdaptationField alloc] initWithAdaptationFieldLength:adaptationFieldLength
                                                                                 discontinuityFlag:discontinuityFlag
                                                                                  randomAccessFlag:randomAccessIndicator
@@ -281,7 +281,7 @@
                                                                                           pcrBase:pcrBase
                                                                                            pcrExt:pcrExt
                                                                              numberOfStuffedBytes:numberOfStuffedBytes];
-
+    
     return adaptationField;
 }
 
@@ -289,12 +289,12 @@
 -(NSData*)getBytes
 {
     NSMutableData *data = [NSMutableData dataWithCapacity:1 + self.adaptationFieldLength];
-
+    
     // Adaption header byte 1:
     // adaptation_field_length = number of bytes in the adaptation_field following this field
     const uint8_t adaptionHeaderByte1 = self.adaptationFieldLength;
     [data appendBytes:&adaptionHeaderByte1 length:1];
-
+    
     if (self.adaptationFieldLength > 0) {
         // Adaption header byte 2: flags indicating the presence of optional fields in the adaptation header
         // Per ISO/IEC 13818-1:
@@ -307,16 +307,16 @@
         // Bit 1: transport_private_data_flag
         // Bit 0: adaptation_field_extension_flag
         const uint8_t adaptionHeaderByte2 =
-            (self.discontinuityFlag            ? 0b10000000 : 0) |
-            (self.randomAccessFlag             ? 0b01000000 : 0) |
-            (self.esPriorityFlag               ? 0b00100000 : 0) |
-            (self.pcrFlag                      ? 0b00010000 : 0) |
-            (self.oPcrFlag                     ? 0b00001000 : 0) |
-            (self.splicingPointFlag            ? 0b00000100 : 0) |
-            (self.transportPrivateDataFlag     ? 0b00000010 : 0) |
-            (self.adaptationFieldExtensionFlag ? 0b00000001 : 0);
+        (self.discontinuityFlag            ? 0b10000000 : 0) |
+        (self.randomAccessFlag             ? 0b01000000 : 0) |
+        (self.esPriorityFlag               ? 0b00100000 : 0) |
+        (self.pcrFlag                      ? 0b00010000 : 0) |
+        (self.oPcrFlag                     ? 0b00001000 : 0) |
+        (self.splicingPointFlag            ? 0b00000100 : 0) |
+        (self.transportPrivateDataFlag     ? 0b00000010 : 0) |
+        (self.adaptationFieldExtensionFlag ? 0b00000001 : 0);
         [data appendBytes:&adaptionHeaderByte2 length:1];
-
+        
         if (self.pcrFlag) {
             // PCR: a 48-bit container containing a 42-bit pcr coded in two parts (pcrBase + pcrExt) separated by 6 reserved bits, i.e. base + reserved + ext.
             uint8_t pcr[6];
@@ -343,7 +343,7 @@
             [data appendBytes:&stuffing length:1];
         }
     }
-
+    
     return data;
 }
 
@@ -384,15 +384,15 @@
 {
     if (packetSize != TS_PACKET_SIZE_188 && packetSize != TS_PACKET_SIZE_204) {
         TSLogError(@"Invalid packet size: %lu (expected %u or %u)",
-              (unsigned long)packetSize, TS_PACKET_SIZE_188, TS_PACKET_SIZE_204);
+                   (unsigned long)packetSize, TS_PACKET_SIZE_188, TS_PACKET_SIZE_204);
         return @[];
     }
     if (chunk.length % packetSize != 0) {
         TSLogError(@"Received non-integer number of ts packets: %lu (expected multiple of %lu)",
-              (unsigned long)chunk.length, (unsigned long)packetSize);
+                   (unsigned long)chunk.length, (unsigned long)packetSize);
         return @[];
     }
-
+    
     NSUInteger numberOfPackets = chunk.length / packetSize;
     NSMutableArray *packets = [NSMutableArray arrayWithCapacity:numberOfPackets];
     for (NSUInteger i = 0; i < numberOfPackets; ++i) {
@@ -404,23 +404,23 @@
         if (!header) {
             return nil;
         }
-
+        
         // Skip packets with transport error indicator set - payload is unreliable
         if (header.transportErrorIndicator) {
             TSLogError(@"Skipping TS packet with transport error indicator set (PID=%u)", header.pid);
             continue;
         }
-
+        
         TSAdaptationField *adaptationField = nil;
         NSData *payload = nil;
-
+        
         const BOOL hasAdaptationField =
         header.adaptationMode == TSAdaptationModeAdaptationOnly
         || header.adaptationMode == TSAdaptationModeAdaptationAndPayload;
         if (hasAdaptationField) {
             adaptationField = [TSAdaptationField initWithTsPacketData:tsPacketData];
         }
-
+        
         const BOOL hasPayload = header.adaptationMode != TSAdaptationModeAdaptationOnly;
         if (hasPayload) {
             const NSUInteger payloadOffset =
@@ -437,28 +437,28 @@
                                            length:payloadLength
                                      freeWhenDone:NO];
         }
-
+        
         TSPacket *packet = [[TSPacket alloc] initWithHeader:(TSPacketHeader* _Nonnull)header
                                             adaptationField:adaptationField
                                                     payload:payload];
         [packets addObject:packet];
     }
-
+    
     return packets;
 }
 
 +(void)packetizePayload:(NSData* _Nonnull)payload
                   track:(TSElementaryStream* _Nonnull)track
-              forcePusi:(BOOL)forcePusi
                 pcrBase:(uint64_t)pcrBase
                  pcrExt:(uint16_t)pcrExt
       discontinuityFlag:(BOOL)discontinuityFlag
        randomAccessFlag:(BOOL)randomAccessFlag
          onTsPacketData:(OnTsPacketDataCallback _Nonnull)onTsPacketCb
 {
-    const BOOL hasPcr = pcrBase > 0;
+    const BOOL hasPcr = pcrBase != kNoPcr;
     NSUInteger packetNumber = 0;
     NSUInteger remainingPayloadLength = payload.length;
+    
     while (remainingPayloadLength > 0) {
         const BOOL isFirstPacket = packetNumber == 0;
         const BOOL shouldSendPcr = hasPcr && isFirstPacket;
@@ -469,21 +469,21 @@
         const BOOL shouldSetDiscontinuity = discontinuityFlag && isFirstPacket;
         const BOOL needsStuffing = remainingPayloadLength < (TS_PACKET_SIZE_188 - TS_PACKET_HEADER_SIZE);
         BOOL shouldIncludeAdaptationField = shouldSendPcr || shouldSetRai || shouldSetDiscontinuity || needsStuffing;
-
-        NSData *adaptationField = shouldIncludeAdaptationField ? [[TSAdaptationField initWithPcrBase:pcrBase
-                                                                                              pcrExt:pcrExt
+        
+        NSData *adaptationField = shouldIncludeAdaptationField ? [[TSAdaptationField initWithPcrBase:shouldSendPcr ? pcrBase : kNoPcr
+                                                                                              pcrExt:shouldSendPcr ? pcrExt : 0
                                                                                    discontinuityFlag:shouldSetDiscontinuity
                                                                                     randomAccessFlag:shouldSetRai
                                                                                 remainingPayloadSize:remainingPayloadLength]
                                                                   getBytes] : nil;
-
+        
         const NSUInteger remainingSpaceInPacket = TS_PACKET_SIZE_188 - TS_PACKET_HEADER_SIZE - adaptationField.length;
         const NSUInteger packetPayloadSize = MIN(remainingSpaceInPacket, remainingPayloadLength);
         const NSUInteger payloadOffset = payload.length - remainingPayloadLength;
         
         TSPacketHeader *header = [[TSPacketHeader alloc] initWithSyncByte:TS_PACKET_HEADER_SYNC_BYTE
                                                                       tei:NO
-                                                                     pusi:isFirstPacket || forcePusi
+                                                                     pusi:isFirstPacket
                                                         transportPriority:NO
                                                                       pid:track.pid
                                                               isScrambled:NO
@@ -494,15 +494,17 @@
             track.continuityCounter = track.continuityCounter + 1;
         }
         
-        
         NSMutableData *tsPacket = [NSMutableData dataWithCapacity:TS_PACKET_SIZE_188];
         [tsPacket appendData:header.getBytes];
         if (adaptationField) {
             [tsPacket appendData:adaptationField];
         }
         [tsPacket appendBytes:(void*)payload.bytes + payloadOffset length:packetPayloadSize];
-        onTsPacketCb(tsPacket);
-
+        NSAssert(tsPacket.length == TS_PACKET_SIZE_188,
+                 @"TS packet size mismatch: %lu (PID %u, packet #%lu)",
+                 (unsigned long)tsPacket.length, track.pid, (unsigned long)packetNumber);
+        onTsPacketCb(tsPacket, header.pid, header.continuityCounter);
+        
         remainingPayloadLength -= packetPayloadSize;
         packetNumber = packetNumber + 1;
     }
@@ -524,13 +526,10 @@
     return nullPacket;
 }
 
-// NOTE: pcrBase == 0 is treated as "no PCR" by initWithPcrBase:, so a PCR value of exactly 0
-// will produce a packet without PCR. This is a pre-existing limitation — the muxer's first PCR
-// is always > 0 in practice, so this doesn't cause issues today.
 +(NSData*)pcrPacketDataWithPid:(uint16_t)pid
-                 continuityCounter:(uint8_t)continuityCounter
-                           pcrBase:(uint64_t)pcrBase
-                            pcrExt:(uint16_t)pcrExt
+             continuityCounter:(uint8_t)continuityCounter
+                       pcrBase:(uint64_t)pcrBase
+                        pcrExt:(uint16_t)pcrExt
 {
     // Build header: adaptation-field-only (0x20), no payload
     TSPacketHeader *header = [[TSPacketHeader alloc] initWithSyncByte:TS_PACKET_HEADER_SYNC_BYTE
@@ -541,14 +540,14 @@
                                                           isScrambled:NO
                                                        adaptationMode:TSAdaptationModeAdaptationOnly
                                                     continuityCounter:continuityCounter];
-
+    
     // Build adaptation field: PCR + stuffing to fill 188 bytes. remainingPayloadSize=0 → fills entire packet.
     TSAdaptationField *af = [TSAdaptationField initWithPcrBase:pcrBase
                                                         pcrExt:pcrExt
                                              discontinuityFlag:NO
                                               randomAccessFlag:NO
                                           remainingPayloadSize:0];
-
+    
     NSMutableData *packet = [NSMutableData dataWithCapacity:TS_PACKET_SIZE_188];
     [packet appendData:[header getBytes]];
     [packet appendData:[af getBytes]];

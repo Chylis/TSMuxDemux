@@ -140,6 +140,7 @@ static const uint32_t kFormatIdentifierBSSD     = 0x42535344; // ASCII: "BSSD" (
     }
 }
 
+// TODO: Assign unique stream_ids (0xC0+N for audio, 0xE0+N for video) when muxing multiple streams of the same media type
 +(uint8_t)streamIdFromStreamType:(uint8_t)streamType
 {
     // See ITU-T H.222.0 Table 2-22 "Stream_id assignments"

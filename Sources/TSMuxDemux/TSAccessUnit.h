@@ -46,8 +46,11 @@
                      compressedData:(NSData* _Nonnull)compressedData;
 
 /// Creates a PES-packet from the access unit.
-/// Converts the pts and dts to the MPEG-TS timescale.
--(NSData* _Nonnull)toTsPacketPayload;
+/// PTS/DTS are converted to the MPEG-TS 90 kHz timescale, relative to epoch.
+/// When epoch is valid, PTS/DTS are offset by the epoch (subtracted) so that timestamps
+/// start from zero — aligning them with a PCR clock that also starts from zero.
+/// Pass kCMTimeInvalid to use absolute timestamps (no offset).
+-(NSData* _Nonnull)toTsPacketPayloadWithEpoch:(CMTime)epoch;
 
 /// Returns the resolved stream type by examining streamType and descriptors.
 -(TSResolvedStreamType)resolvedStreamType;

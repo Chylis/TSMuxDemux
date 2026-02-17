@@ -36,7 +36,7 @@
                 sectionSyntaxIndicator:PSI_SECTION_SYNTAX_INDICATOR
                 reservedBit1:PSI_PRIVATE_BIT
                 reservedBits2:PSI_RESERVED_BITS
-                sectionLength:sectionDataExcludingCrc.length
+                sectionLength:sectionDataExcludingCrc.length + PSI_CRC_LEN
                 sectionDataExcludingCrc:sectionDataExcludingCrc
                 crc:0];
     }

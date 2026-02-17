@@ -12,35 +12,24 @@
 #import "TSPacket.h"
 #import "Table/TSProgramAssociationTable.h"
 #import "Table/TSProgramMapTable.h"
-#import "TSTimeUtil.h"
 #import "TSLog.h"
 
 #pragma mark - TSMuxerSettings
 
-#define DEFAULT_PSI_INTERVAL_MS 250
-#define DEFAULT_PROGRAM1_PMT 0x1000 // 4096
 #define MAX_TARGET_BITRATE_KBPS 60000 // safety net
-#define DEFAULT_MAX_QUEUED_ACCESS_UNITS 300
 #define STATS_LOG_INTERVAL_MS 10000
 
 @implementation TSMuxerSettings
-
--(instancetype)init
-{
-    self = [super init];
-    if (self) {
-        _pmtPid = DEFAULT_PROGRAM1_PMT;
-        _psiIntervalMs = DEFAULT_PSI_INTERVAL_MS;
-        _maxNumQueuedAccessUnits = DEFAULT_MAX_QUEUED_ACCESS_UNITS;
-    }
-    return self;
-}
 
 -(instancetype)copyWithZone:(NSZone *)zone
 {
     TSMuxerSettings *copy = [[self class] allocWithZone:zone];
     copy.pmtPid = self.pmtPid;
+    copy.pcrPid = self.pcrPid;
+    copy.videoPid = self.videoPid;
+    copy.audioPid = self.audioPid;
     copy.psiIntervalMs = self.psiIntervalMs;
+    copy.pcrIntervalMs = self.pcrIntervalMs;
     copy.targetBitrateKbps = self.targetBitrateKbps;
     copy.maxNumQueuedAccessUnits = self.maxNumQueuedAccessUnits;
     return copy;
@@ -57,8 +46,50 @@
 /// Note: Program number 0 is reserved for the PID of the Network Information Table
 #define PROGRAM_NUMBER 1
 
+static const uint64_t kNeverSent = UINT64_MAX;
 
-@interface TSMuxer()
+
+/// PCR state.
+/// Value: transport-time-driven (virtual in CBR, wall-clock in VBR).
+///        Per ISO 13818-1 §2.4.2.1, the PCR represents the STC at byte-arrival at the decoder,
+///        which in a CBR stream is determined by byte position, not the encoder wall clock.
+/// Interval: transport-time-driven per ISO 13818-1.
+typedef struct {
+    /// PID carrying the PCR for program 1.
+    uint16_t pid;
+    /// Time when the last PCR was emitted. kNeverSent = not yet emitted.
+    uint64_t lastEmissionTimeNanos;
+    /// Time when the first AU was processed — the PCR=0 anchor point. 0 = not yet set.
+    uint64_t pcrAnchorNanos;
+    /// CC of the last emitted packet on this PID. Updated by emitPacket:.
+    uint8_t lastEmittedCc;
+} TSPcrState;
+
+/// A packetized TS packet with metadata extracted at creation time,
+/// so consumers don't need to parse the raw bytes.
+@interface TSPacketizedPacket : NSObject
+@property(nonatomic, readonly, nonnull) NSData *data;
+@property(nonatomic, readonly) uint16_t pid;
+@property(nonatomic, readonly) uint8_t cc;
++(instancetype _Nonnull)packetWithData:(NSData * _Nonnull)data pid:(uint16_t)pid cc:(uint8_t)cc;
+@end
+
+@implementation TSPacketizedPacket
++(instancetype)packetWithData:(NSData *)data pid:(uint16_t)pid cc:(uint8_t)cc {
+    TSPacketizedPacket *p = [[TSPacketizedPacket alloc] init];
+    p->_data = data;
+    p->_pid = pid;
+    p->_cc = cc;
+    return p;
+}
+@end
+
+@interface TSMuxer() {
+    TSPcrState _pcr;
+    /// DTS/PTS of the first access unit — subtracted from all DTS/PTS so that timestamps
+    /// start from zero, aligning them with the PCR clock (which also starts from zero).
+    CMTime _ptsAnchor;
+}
 
 @property(nonatomic, readonly, nonnull) TSProgramAssociationTable *pat;
 @property(nonatomic, readonly, nonnull) TSElementaryStream *patTrack;
@@ -66,28 +97,23 @@
 @property(nonatomic, readonly, nonnull) TSElementaryStream *pmtTrack;
 @property(nonatomic, readonly, nonnull) NSMutableArray<TSAccessUnit*> *accessUnits;
 
-@property(nonatomic) uint16_t pcrPid;
 @property(nonatomic) uint8_t versionNumber;
 @property(nonatomic, readonly, nonnull) NSSet<TSElementaryStream*> *elementaryStreams;
 
-/// Timestamp representing when the program specific information was last sent.
-@property(nonatomic) uint64_t psiSendTimeMs;
-
-@property(nonatomic) CMTime lastSentPcr;
-@property(nonatomic) CMTime firstSentPcr;
+/// Transport time when the program specific information was last sent.
+/// Shared by PAT and PMT since this is a single-program muxer — they're always emitted as a pair.
+@property(nonatomic) uint64_t psiSendTimeNanos;
 
 /// CBR state
 @property(nonatomic) uint64_t numTsPacketsEmitted;
-@property(nonatomic) uint64_t firstOutputTimeNanos;
-/// TS packets waiting to be paced out at the CBR rate. Packets are appended per-AU
-/// (e.g. [V V V A A A PSI PSI V V ...]) and drained one-by-one to the delegate.
-@property(nonatomic, readonly, nonnull) NSMutableArray<NSData*> *pendingTsPackets;
+@property(nonatomic) uint64_t startTimeWallClockNanos;
+
+/// TS packets waiting to be paced out at the CBR rate. Contains packets from at most
+/// one AU at a time (single PID) — fully drained before the next AU is packetized.
+@property(nonatomic, readonly, nonnull) NSMutableArray<TSPacketizedPacket*> *pendingTsPackets;
 
 /// PIDs that need their next emitted packet to carry the discontinuity flag.
 @property(nonatomic, readonly, nonnull) NSMutableSet<NSNumber*> *discontinuousPids;
-
-/// Virtual stream time (ms) when the last PCR was emitted. Used to emit PCR during null stretches.
-@property(nonatomic) uint64_t lastPcrVirtualTimeMs;
 
 /// Stats
 @property(nonatomic) uint64_t statsLastLogTimeMs;
@@ -105,10 +131,31 @@
 +(void)validateSettings:(TSMuxerSettings *)settings
 {
     if ([TSPidUtil isCustomPidInvalid:settings.pmtPid]) {
-        [NSException raise:@"TSMuxerInvalidPidException" format:@"PMT Pid is reserved/out of valid range"];
+        [NSException raise:@"TSMuxerInvalidPidException" format:@"PMT PID is reserved/out of valid range"];
+    }
+    if ([TSPidUtil isCustomPidInvalid:settings.pcrPid]) {
+        [NSException raise:@"TSMuxerInvalidPidException" format:@"PCR PID is reserved/out of valid range"];
+    }
+    if ([TSPidUtil isCustomPidInvalid:settings.videoPid]) {
+        [NSException raise:@"TSMuxerInvalidPidException" format:@"Video PID is reserved/out of valid range"];
+    }
+    if ([TSPidUtil isCustomPidInvalid:settings.audioPid]) {
+        [NSException raise:@"TSMuxerInvalidPidException" format:@"Audio PID is reserved/out of valid range"];
+    }
+    if (settings.pmtPid == settings.pcrPid) {
+        [NSException raise:@"TSMuxerInvalidPidException" format:@"PMT PID and PCR PID must not be the same"];
+    }
+    if (settings.audioPid == settings.videoPid) {
+        [NSException raise:@"TSMuxerInvalidPidException" format:@"Audio PID and Video PID must not be the same"];
+    }
+    if (settings.audioPid == settings.pmtPid || settings.videoPid == settings.pmtPid) {
+        [NSException raise:@"TSMuxerInvalidPidException" format:@"Audio/Video PIDs must not be the same as PMT PID"];
     }
     if (settings.psiIntervalMs == 0) {
         [NSException raise:@"TSMuxerInvalidSettingsException" format:@"PSI interval must be > 0"];
+    }
+    if (settings.pcrIntervalMs == 0) {
+        [NSException raise:@"TSMuxerInvalidSettingsException" format:@"PCR interval must be > 0"];
     }
     if (settings.targetBitrateKbps > MAX_TARGET_BITRATE_KBPS) {
         [NSException raise:@"TSMuxerInvalidSettingsException" format:@"Target bitrate must be <= %d kbps", MAX_TARGET_BITRATE_KBPS];
@@ -116,15 +163,14 @@
 }
 
 -(instancetype _Nonnull)initWithSettings:(TSMuxerSettings * _Nonnull)settings
+                          wallClockNanos:(uint64_t (^ _Nonnull)(void))wallClockNanos
                                 delegate:(id<TSMuxerDelegate> _Nullable)delegate
 {
     self = [super init];
     if (self) {
         self.settings = settings;
         self.delegate = delegate;
-        self.psiSendTimeMs = 0;
-        self.lastSentPcr = kCMTimeInvalid;
-        self.firstSentPcr = kCMTimeInvalid;
+        self.psiSendTimeNanos = kNeverSent;
         
         const uint8_t streamTypeNotApplicable = 0;
         _pat = [[TSProgramAssociationTable alloc] initWithTransportStreamId:0
@@ -137,13 +183,14 @@
                                                  streamType:streamTypeNotApplicable
                                                 descriptors:nil];
         
-        _pcrPid = 0;
+        _pcr = (TSPcrState){ .pid = _settings.pcrPid, .lastEmissionTimeNanos = kNeverSent };
+        _ptsAnchor = kCMTimeInvalid;
         _versionNumber = 0;
         _elementaryStreams = [NSSet set];
         _accessUnits = [NSMutableArray array];
         _pendingTsPackets = [NSMutableArray array];
         _discontinuousPids = [NSMutableSet set];
-        _nowNanosProvider = ^{ return [TSTimeUtil nowHostTimeNanos]; };
+        _wallClockNanos = [wallClockNanos copy];
     }
     
     return self;
@@ -158,14 +205,6 @@
 {
     [TSMuxer validateSettings:settings];
     _settings = [settings copy];
-}
-
--(void)setPcrPid:(uint16_t)pcrPid
-{
-    if (self.pcrPid != pcrPid) {
-        _pcrPid = pcrPid;
-        [self setVersionNumber:self.versionNumber + 1];
-    }
 }
 
 -(void)setVersionNumber:(uint8_t)versionNumber
@@ -195,12 +234,7 @@
     if ([TSPidUtil isCustomPidInvalid:accessUnit.pid] || accessUnit.pid == _settings.pmtPid) {
         [NSException raise:@"TSMuxerInvalidPidException" format:@"Pid is reserved/occupied/out of valid range"];
     }
-
-    BOOL hasSetPcrPid = self.pcrPid != 0;
-    if (!hasSetPcrPid && [accessUnit isVideo]) {
-        self.pcrPid = accessUnit.pid;
-    }
-
+    
     TSElementaryStream *track = [self elementaryStreamWithPid:accessUnit.pid];
     if (!track) {
         track = [[TSElementaryStream alloc] initWithPid:accessUnit.pid
@@ -208,22 +242,32 @@
                                             descriptors:accessUnit.descriptors];
         [self addElementaryStream:track];
     }
-
-    [self.accessUnits addObject:accessUnit];
-    self.statsAccessUnitCount++;
-
-    // Drop oldest access units during backpressure
-    if (_settings.maxNumQueuedAccessUnits > 0 && self.accessUnits.count > _settings.maxNumQueuedAccessUnits) {
-        NSUInteger dropCount = self.accessUnits.count - _settings.maxNumQueuedAccessUnits;
-        NSMutableSet<NSNumber*> *droppedPids = [NSMutableSet set];
-        for (NSUInteger i = 0; i < dropCount; i++) {
-            [droppedPids addObject:@(self.accessUnits[i].pid)];
-        }
-        [self.accessUnits removeObjectsInRange:NSMakeRange(0, dropCount)];
-        [self.discontinuousPids unionSet:droppedPids];
-        self.statsDroppedAccessUnitCount += dropCount;
-        TSLogWarn(@"Queue overflow: dropped %lu access units (PIDs: %@)", (unsigned long)dropCount, droppedPids);
+    
+    // Drop oldest access unit during backpressure to make room
+    if (_settings.maxNumQueuedAccessUnits > 0 && self.accessUnits.count >= _settings.maxNumQueuedAccessUnits) {
+        TSAccessUnit *dropped = self.accessUnits[0];
+        [self.accessUnits removeObjectAtIndex:0];
+        [self.discontinuousPids addObject:@(dropped.pid)];
+        self.statsDroppedAccessUnitCount++;
+        TSLogWarn(@"Queue overflow: dropped oldest access unit (PID: %u)", dropped.pid);
     }
+    
+    // Insert in DTS order (PTS fallback) for correct cross-stream interleaving.
+    // Scan from the end since AUs typically arrive in near-order.
+    CMTime auTime = CMTIME_IS_VALID(accessUnit.dts) ? accessUnit.dts : accessUnit.pts;
+    NSUInteger insertIndex = self.accessUnits.count;
+    if (CMTIME_IS_VALID(auTime)) {
+        while (insertIndex > 0) {
+            TSAccessUnit *existing = self.accessUnits[insertIndex - 1];
+            CMTime existingTime = CMTIME_IS_VALID(existing.dts) ? existing.dts : existing.pts;
+            if (!CMTIME_IS_VALID(existingTime) || CMTimeCompare(existingTime, auTime) <= 0) {
+                break;
+            }
+            insertIndex--;
+        }
+    }
+    [self.accessUnits insertObject:accessUnit atIndex:insertIndex];
+    self.statsAccessUnitCount++;
 }
 
 -(void)tick
@@ -233,7 +277,7 @@
     } else {
         [self doMuxVBR];
     }
-
+    
     [self maybeLogStats];
 }
 
@@ -241,19 +285,19 @@
 
 -(void)maybeLogStats
 {
-    const uint64_t nowMs = self.nowNanosProvider() / 1000000;
+    const uint64_t nowMs = self.wallClockNanos() / 1000000;
     if (self.statsLastLogTimeMs == 0) {
         self.statsLastLogTimeMs = nowMs;
         return;
     }
-
+    
     const uint64_t elapsedMs = nowMs - self.statsLastLogTimeMs;
     if (elapsedMs < STATS_LOG_INTERVAL_MS) return;
-
+    
     const double elapsedSeconds = elapsedMs / 1e3;
     const double actualBitrateKbps = (self.statsTsPacketCount * TS_PACKET_SIZE_188 * 8.0) / elapsedSeconds / 1e3;
     const BOOL isCBR = _settings.targetBitrateKbps > 0;
-
+    
     TSLogDebug(@"mode=%s targetKbps=%lu actualKbps=%.0f | receivedAUs=%llu droppedAUs=%llu pendingAUs=%lu | pendingTsPackets=%lu emittedTsPackets=%llu nullTsPackets=%llu",
                isCBR ? "CBR" : "VBR",
                (unsigned long)_settings.targetBitrateKbps,
@@ -274,39 +318,45 @@
 
 #pragma mark - Shared Helpers
 
+
+static inline BOOL isIntervalElapsed(uint64_t lastTimeNanos, uint64_t intervalNanos, uint64_t nowNanos)
+{
+    return lastTimeNanos == kNeverSent || (nowNanos - lastTimeNanos) >= intervalNanos;
+}
+
 -(void)packetizePsiTables:(OnTsPacketDataCallback)onTsPacketCb
 {
     [TSPacket packetizePayload:[self.pat toTsPacketPayload]
                          track:self.patTrack
-                     forcePusi:YES
-                       pcrBase:0
+                       pcrBase:kNoPcr
                         pcrExt:0
              discontinuityFlag:NO
               randomAccessFlag:NO
                 onTsPacketData:onTsPacketCb];
 
-    if (self.elementaryStreams.count > 0) {
-        TSProgramMapTable *pmt = [[TSProgramMapTable alloc] initWithProgramNumber:PROGRAM_NUMBER
-                                                                    versionNumber:self.versionNumber
-                                                                           pcrPid:self.pcrPid
-                                                                elementaryStreams:self.elementaryStreams];
-        [TSPacket packetizePayload:[pmt toTsPacketPayload]
-                             track:self.pmtTrack
-                         forcePusi:YES
-                           pcrBase:0
-                            pcrExt:0
-                 discontinuityFlag:NO
-                  randomAccessFlag:NO
-                    onTsPacketData:onTsPacketCb];
-    }
+    TSProgramMapTable *pmt = [[TSProgramMapTable alloc] initWithProgramNumber:PROGRAM_NUMBER
+                                                                versionNumber:self.versionNumber
+                                                                       pcrPid:_pcr.pid
+                                                            elementaryStreams:self.elementaryStreams];
+    [TSPacket packetizePayload:[pmt toTsPacketPayload]
+                         track:self.pmtTrack
+                       pcrBase:kNoPcr
+                        pcrExt:0
+             discontinuityFlag:NO
+              randomAccessFlag:NO
+                onTsPacketData:onTsPacketCb];
 }
 
--(void)packetizeNextAccessUnit:(OnTsPacketDataCallback)onTsPacketCb
+-(NSMutableArray<TSPacketizedPacket*>*)packetizeAccessUnit:(TSAccessUnit *)accessUnit
+                                                  nowNanos:(uint64_t)nowNanos
 {
-    if (self.accessUnits.count == 0) return;
-
-    const TSAccessUnit *accessUnit = self.accessUnits[0];
-    [self.accessUnits removeObjectAtIndex:0];
+    if (CMTIME_IS_INVALID(_ptsAnchor)) {
+        const CMTime candidate = CMTIME_IS_VALID(accessUnit.dts) ? accessUnit.dts : accessUnit.pts;
+        if (CMTIME_IS_VALID(candidate)) {
+            _ptsAnchor = candidate;
+            _pcr.pcrAnchorNanos = nowNanos;
+        }
+    }
 
     NSNumber *pidKey = @(accessUnit.pid);
     BOOL discontinuity = [self.discontinuousPids containsObject:pidKey];
@@ -314,18 +364,43 @@
         [self.discontinuousPids removeObject:pidKey];
     }
 
-    NSData *pesPacket = [accessUnit toTsPacketPayload];
+    NSData *pesPacket = [accessUnit toTsPacketPayloadWithEpoch:_ptsAnchor];
     TSElementaryStream *track = [self elementaryStreamWithPid:accessUnit.pid];
 
-    uint64_t pcr = [self maybeGetPcr:accessUnit];
+    uint64_t pcrBase = kNoPcr;
+    uint16_t pcrExt = 0;
+    if (accessUnit.pid == _pcr.pid && [self isTimeToSendPcr:nowNanos]) {
+        [self calculatePcr:nowNanos base:&pcrBase ext:&pcrExt];
+        _pcr.lastEmissionTimeNanos = nowNanos;
+    }
+
+    NSMutableArray<TSPacketizedPacket*> *packets = [NSMutableArray array];
     [TSPacket packetizePayload:pesPacket
                          track:track
-                     forcePusi:NO
-                       pcrBase:pcr
-                        pcrExt:0
+                       pcrBase:pcrBase
+                        pcrExt:pcrExt
              discontinuityFlag:discontinuity
               randomAccessFlag:accessUnit.isRandomAccessPoint
-                onTsPacketData:onTsPacketCb];
+                onTsPacketData:^(NSData *tsPacketData, uint16_t pid, uint8_t cc) {
+        [packets addObject:[TSPacketizedPacket packetWithData:tsPacketData pid:pid cc:cc]];
+    }];
+    return packets;
+}
+
+
+-(BOOL)isTimeToSendPsiTables:(uint64_t)nowNanos
+{
+    return isIntervalElapsed(self.psiSendTimeNanos, _settings.psiIntervalMs * 1000000ULL, nowNanos);
+}
+
+-(void)emitPacket:(TSPacketizedPacket *)packet
+{
+    self.numTsPacketsEmitted++;
+    self.statsTsPacketCount++;
+    if (packet.pid == _pcr.pid) {
+        _pcr.lastEmittedCc = packet.cc;
+    }
+    [self.delegate muxer:self didMuxTSPacketData:packet.data];
 }
 
 #pragma mark - VBR
@@ -333,22 +408,35 @@
 
 -(void)doMuxVBR
 {
-    OnTsPacketDataCallback emitTsPacket = ^(NSData *tsPacketData) {
-        self.statsTsPacketCount++;
-        [self.delegate muxer:self didMuxTSPacketData:tsPacketData];
-    };
-
-    while (self.accessUnits.count) {
-        const uint64_t nowMs = self.nowNanosProvider() / 1000000;
-
-        if ([self isTimeToSendPsiTables:nowMs]) {
-            [self packetizePsiTables:emitTsPacket];
-            self.psiSendTimeMs = nowMs;
+    do {
+        const uint64_t nowNanos = self.wallClockNanos();
+        
+        if ([self isTimeToSendPsiTables:nowNanos]) {
+            [self packetizePsiTables:^(NSData *tsPacketData, uint16_t pid, uint8_t cc) {
+                [self emitPacket:[TSPacketizedPacket packetWithData:tsPacketData pid:pid cc:cc]];
+            }];
+            self.psiSendTimeNanos = nowNanos;
         }
 
-        [self packetizeNextAccessUnit:emitTsPacket];
-    }
+        if (self.accessUnits.count) {
+            TSAccessUnit *au = self.accessUnits[0];
+            [self.accessUnits removeObjectAtIndex:0];
+            for (TSPacketizedPacket *packet in [self packetizeAccessUnit:au nowNanos:nowNanos]) {
+                [self emitPacket:packet];
+            }
+        }
+
+        if ([self shouldSendStandalonePcr:nowNanos]) {
+            const uint8_t cc = _pcr.lastEmittedCc;
+            [self emitPacket:[TSPacketizedPacket packetWithData:[self packetizeStandalonePcr:nowNanos cc:cc]
+                                                           pid:_pcr.pid
+                                                            cc:cc]];
+            _pcr.lastEmissionTimeNanos = nowNanos;
+        }
+
+    } while (self.accessUnits.count);
 }
+
 
 #pragma mark - CBR
 // enqueueAccessUnit: → accessUnits; tick → packetize → pendingTsPackets → paced out one-by-one at targetBitrateKbps.
@@ -360,133 +448,125 @@
 -(uint64_t)expectedPacketCount:(uint64_t)nowNanos
 {
     NSAssert(_settings.targetBitrateKbps > 0, @"expectedPacketCount requires CBR mode");
-    const double elapsedSeconds = (double)(nowNanos - self.firstOutputTimeNanos) / 1e9;
+    const double elapsedSeconds = (double)(nowNanos - self.startTimeWallClockNanos) / 1e9;
     const double targetBytesPerSecond = (double)_settings.targetBitrateKbps * 1e3 / 8.0;
     const double targetPacketsPerSecond = targetBytesPerSecond / (double)TS_PACKET_SIZE_188;
     return (uint64_t)(targetPacketsPerSecond * elapsedSeconds);
 }
 
-/// Virtual stream time derived from packet count and target bitrate.
+/// Virtual stream time in nanoseconds, derived from packet count and target bitrate (in CBR, the byte counter is the clock.)
 /// Represents the time a receiver would perceive when reading at the target CBR.
--(uint64_t)virtualNowMs
+-(uint64_t)cbrNanosElapsed
 {
-    NSAssert(_settings.targetBitrateKbps > 0, @"virtualNowMs requires CBR mode");
+    NSAssert(_settings.targetBitrateKbps > 0, @"cbrNanosElapsed requires CBR mode");
     const double totalBitsEmitted = self.numTsPacketsEmitted * TS_PACKET_SIZE_188 * 8.0;
-    const double targetBitsPerMs = (double)_settings.targetBitrateKbps;
-    return (uint64_t)(totalBitsEmitted / targetBitsPerMs);
-}
-
--(void)emitTsPacket:(NSData *)tsPacketData
-{
-    self.numTsPacketsEmitted++;
-    self.statsTsPacketCount++;
-    [self.delegate muxer:self didMuxTSPacketData:tsPacketData];
+    const double targetBitsPerSecond = (double)_settings.targetBitrateKbps * 1000.0;
+    const double seconds = totalBitsEmitted / targetBitsPerSecond;
+    return (uint64_t)(seconds * 1e9);
 }
 
 -(void)doMuxCBR
 {
-    const uint64_t nowNanos = self.nowNanosProvider();
-
-    if (self.firstOutputTimeNanos == 0) {
-        self.firstOutputTimeNanos = nowNanos;
+    const uint64_t wallClockTimeNs = self.wallClockNanos();
+    if (self.startTimeWallClockNanos == 0) {
+        self.startTimeWallClockNanos = wallClockTimeNs;
     }
-
-    const uint64_t expectedNumTsPacketsEmitted = [self expectedPacketCount:nowNanos];
+    const uint64_t expectedNumTsPacketsEmitted = [self expectedPacketCount:wallClockTimeNs];
     
-    // Each iteration either emits one or more packets (advancing numTsPacketsEmitted),
-    // or packetizes the next AU into pendingTsPackets for subsequent iterations.
+    // Paced output loop.
+    // Each iteration emits one packet, except:
+    // - PSI: emits 2 packets (PAT + PMT)
+    // - packetizeAccessUnit: emits zero packets (enqueues into pendingTsPackets for subsequent iterations).
     while (self.numTsPacketsEmitted < expectedNumTsPacketsEmitted) {
-        const uint64_t virtualNowMs = [self virtualNowMs];
-        if ([self isTimeToSendPsiTables:virtualNowMs]) {
-            // Emit PSI directly (not enqueued) so psiSendTimeMs reflects actual send time
-            [self packetizePsiTables:^(NSData *tsPacketData) {
-                [self emitTsPacket:tsPacketData];
+        const uint64_t nowNanos = [self cbrNanosElapsed];
+        
+        if ([self isTimeToSendPsiTables:nowNanos]) {
+            [self packetizePsiTables:^(NSData *tsPacketData, uint16_t pid, uint8_t cc) {
+                [self emitPacket:[TSPacketizedPacket packetWithData:tsPacketData pid:pid cc:cc]];
             }];
-            self.psiSendTimeMs = virtualNowMs;
+            self.psiSendTimeNanos = nowNanos;
+            continue;
+        }
+
+        if ([self shouldSendStandalonePcr:nowNanos]) {
+            const uint8_t cc = _pcr.lastEmittedCc;
+            [self emitPacket:[TSPacketizedPacket packetWithData:[self packetizeStandalonePcr:nowNanos cc:cc]
+                                                           pid:_pcr.pid
+                                                            cc:cc]];
+            _pcr.lastEmissionTimeNanos = nowNanos;
             continue;
         }
 
         if (self.pendingTsPackets.count > 0) {
-            // Drain one paced TS packet from the pending queue
-            NSData *packet = self.pendingTsPackets[0];
+            TSPacketizedPacket *packet = self.pendingTsPackets[0];
             [self.pendingTsPackets removeObjectAtIndex:0];
-            [self emitTsPacket:packet];
+            [self emitPacket:packet];
         } else if (self.accessUnits.count > 0) {
-            // No pending TS packets.
-            // Let's convert the next AU into a pending TS packet (on demand, to limit memory) for next iteration.
-            [self packetizeNextAccessUnit:^(NSData *tsPacketData) {
-                [self.pendingTsPackets addObject:tsPacketData];
-            }];
+            // Packetize the next AU into pending TS packets (on demand, to limit memory) for subsequent iterations.
+            TSAccessUnit *au = self.accessUnits[0];
+            [self.accessUnits removeObjectAtIndex:0];
+            _pendingTsPackets = [self packetizeAccessUnit:au nowNanos:nowNanos];
         } else {
-            // No content available — stuff with null or PCR packet to maintain CBR
-            const uint64_t virtualNowMs = [self virtualNowMs];
-            if ([self shouldEmitPcrAtVirtualTimeMs:virtualNowMs]) {
-                uint64_t pcrBase = [self pcrBaseForVirtualTimeMs:virtualNowMs];
-                TSElementaryStream *pcrTrack = [self elementaryStreamWithPid:self.pcrPid];
-                [self emitTsPacket:[TSPacket pcrPacketDataWithPid:self.pcrPid
-                                               continuityCounter:pcrTrack ? pcrTrack.continuityCounter : 0
-                                                         pcrBase:pcrBase
-                                                          pcrExt:0]];
-                self.lastPcrVirtualTimeMs = virtualNowMs;
-            } else {
-                self.statsNullPacketCount++;
-                [self emitTsPacket:[TSPacket nullPacketData]];
-            }
+            // No content available — null stuff to maintain CBR
+            self.statsNullPacketCount++;
+            [self emitPacket:[TSPacketizedPacket packetWithData:[TSPacket nullPacketData] pid:PID_NULL_PACKET cc:0]];
         }
     }
 }
 
--(BOOL)isTimeToSendPsiTables:(uint64_t)nowMs
+#pragma mark - PCR
+
+/// Whether a standalone PCR should be emitted now.
+/// Checks both timing (PCR interval elapsed) and readiness (payload must have been emitted on shared PIDs).
+/// CC is always _pcr.lastEmittedCc (zero-initialized for dedicated PIDs, updated by emitPacket: for shared PIDs).
+-(BOOL)shouldSendStandalonePcr:(uint64_t)nowNanos
 {
-    const uint64_t msElapsedSinceLastPSI = nowMs - self.psiSendTimeMs;
-    const BOOL isTimeToSendPSI = self.psiSendTimeMs == 0 || msElapsedSinceLastPSI >= _settings.psiIntervalMs;
-    return isTimeToSendPSI;
+    if (![self isTimeToSendPcr:nowNanos]) {
+        return NO;
+    }
+    const BOOL isSharedPid = (_pcr.pid == _settings.videoPid || _pcr.pid == _settings.audioPid);
+    if (isSharedPid && _pcr.lastEmissionTimeNanos == kNeverSent) {
+        // PCR PID is shared with a payload stream but no AU has arrived on it yet.
+        // Defer — the first AU on this PID will piggyback inline PCR.
+        return NO;
+    }
+    return YES;
 }
 
--(uint64_t)maybeGetPcr:(const TSAccessUnit *)accessUnit
+/// Whether the PCR interval has elapsed and a PCR should be emitted.
+/// Deferred until the PCR  anchor (pcr time when first AU was processed) is established,
+/// so that PCR=0 aligns with PTS=0 in the output stream.
+-(BOOL)isTimeToSendPcr:(uint64_t)nowNanos
 {
-    if (self.pcrPid != accessUnit.pid) {
-        return 0;
-    }
-    static const double pcrIntervalSeconds = 0.04;
-
-    const BOOL hasSentPcr = CMTIME_IS_VALID(self.firstSentPcr);
-    const Float64 secondsElapsedSinceLastPcr = CMTimeGetSeconds(accessUnit.pts) - CMTimeGetSeconds(self.lastSentPcr);
-    const BOOL isTimeToSendPcr = !hasSentPcr || secondsElapsedSinceLastPcr >= pcrIntervalSeconds;
-    if (!isTimeToSendPcr) {
-        return 0;
-    }
-    if (!hasSentPcr) {
-        self.firstSentPcr = accessUnit.pts;
-    }
-    const Float64 secondsElapsedSinceFirstPcr = CMTimeGetSeconds(accessUnit.pts) - CMTimeGetSeconds(self.firstSentPcr);
-    const uint64_t pcr = secondsElapsedSinceFirstPcr * TS_TIMESTAMP_TIMESCALE;
-
-    self.lastSentPcr = accessUnit.pts;
-    if (_settings.targetBitrateKbps > 0) {
-        self.lastPcrVirtualTimeMs = [self virtualNowMs];
-    }
-    return pcr;
+    if (_pcr.pcrAnchorNanos == 0) return NO;
+    return isIntervalElapsed(_pcr.lastEmissionTimeNanos, _settings.pcrIntervalMs * 1000000ULL, nowNanos);
 }
 
-#pragma mark - CBR PCR helpers
-
-static const uint64_t kPcrIntervalMs = 40;
-
--(BOOL)shouldEmitPcrAtVirtualTimeMs:(uint64_t)virtualNowMs
+-(NSData * _Nonnull)packetizeStandalonePcr:(uint64_t)nowNanos cc:(uint8_t)cc
 {
-    if (self.pcrPid == 0) return NO;
-    if (self.lastPcrVirtualTimeMs == 0) return NO; // No PCR sent yet — wait for first AU
-    return (virtualNowMs - self.lastPcrVirtualTimeMs) >= kPcrIntervalMs;
+    uint64_t pcrBase;
+    uint16_t pcrExt;
+    [self calculatePcr:nowNanos base:&pcrBase ext:&pcrExt];
+
+    return [TSPacket pcrPacketDataWithPid:_pcr.pid
+                       continuityCounter:cc
+                                 pcrBase:pcrBase
+                                  pcrExt:pcrExt];
 }
 
--(uint64_t)pcrBaseForVirtualTimeMs:(uint64_t)virtualNowMs
+/// Computes PCR base (90 kHz, 33-bit) and extension (27 MHz remainder, 0-299)
+/// from the transport time elapsed since the PCR epoch.
+/// Transport time is virtual (byte-position-derived) in CBR, wall-clock in VBR.
+-(void)calculatePcr:(uint64_t)nowNanos
+               base:(uint64_t *)outBase
+                ext:(uint16_t *)outExt
 {
-    // Derive PCR from virtual stream time relative to the first PCR
-    const Float64 firstPcrSeconds = CMTimeGetSeconds(self.firstSentPcr);
-    const double virtualNowSeconds = virtualNowMs / 1e3;
-    const double pcrSeconds = virtualNowSeconds - firstPcrSeconds;
-    return (uint64_t)(pcrSeconds * TS_TIMESTAMP_TIMESCALE);
+    const uint64_t elapsedNanos = nowNanos - _pcr.pcrAnchorNanos;
+    // Convert nanoseconds to 27 MHz ticks: nanos * 27,000,000 / 1,000,000,000 = nanos * 27 / 1000.
+    // Overflow safe for streams up to ~21 years.
+    const uint64_t pcr27MHz = elapsedNanos * 27 / 1000;
+    *outBase = (pcr27MHz / 300) & 0x1FFFFFFFFULL; // which 90 kHz tick (33-bits)
+    *outExt  = pcr27MHz % 300;                     // where (0-299) within that tick
 }
 
 @end

@@ -242,18 +242,18 @@
                                              descriptors:track.descriptors
                                           compressedData:payload];
 
-    NSData *pesPayload = [au toTsPacketPayload];
+    NSData *pesPayload = [au toTsPacketPayloadWithEpoch:kCMTimeInvalid];
 
     // Packetize into TS packets (track maintains CC across calls)
     NSMutableData *result = [NSMutableData data];
     [TSPacket packetizePayload:pesPayload
                          track:track
-                     forcePusi:NO
-                       pcrBase:0
+
+                       pcrBase:kNoPcr
                         pcrExt:0
              discontinuityFlag:NO
               randomAccessFlag:NO
-                onTsPacketData:^(NSData * _Nonnull tsPacketData) {
+                onTsPacketData:^(NSData * _Nonnull tsPacketData, uint16_t pid, uint8_t cc) {
         [result appendData:tsPacketData];
     }];
 

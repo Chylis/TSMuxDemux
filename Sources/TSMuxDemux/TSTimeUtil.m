@@ -4,6 +4,7 @@
 //
 
 #import "TSTimeUtil.h"
+#import "TSLog.h"
 #include <mach/mach_time.h>
 
 static const uint64_t ONE_SECOND_NANOS = 1000000000;
@@ -32,7 +33,10 @@ static const uint64_t ONE_SECOND_NANOS = 1000000000;
 {
     self = [super init];
     if (self) {
-        mach_timebase_info(&machTimebaseInfo);
+        if (mach_timebase_info(&machTimebaseInfo) != KERN_SUCCESS) {
+            TSLogError(@"Failed to fetch mach_timebase_info");
+            NSAssert(NO, @"Failed to fetch mach_timebase_info");
+        }
     }
     return self;
 }
@@ -62,12 +66,20 @@ static const uint64_t ONE_SECOND_NANOS = 1000000000;
 
 +(uint64_t)secondsToNanos:(double)seconds
 {
-    return (uint64_t)seconds * ONE_SECOND_NANOS;
+    return (uint64_t)(seconds * ONE_SECOND_NANOS);
 }
 
 +(uint64_t)convertTimeToUIntTime:(CMTime)time withNewTimescale:(uint32_t)newTimescale
 {
-    return (uint64_t)(((double)time.value / (double)time.timescale) * newTimescale);
+    // RoundTowardZero (truncation) matches the C cast behaviour this replaces and avoids
+    // rounding a timestamp forward past the actual media time, which could place a PTS/DTS
+    // one tick ahead of the true sample position.
+    CMTime converted = CMTimeConvertScale(time, newTimescale, kCMTimeRoundingMethod_RoundTowardZero);
+    if (converted.value < 0) {
+        TSLogWarn(@"Negative timestamp clamped to 0 (value: %lld, timescale: %u)", converted.value, newTimescale);
+        return 0;
+    }
+    return (uint64_t)converted.value;
 }
 
 +(CMTime)convertUIntTimeToCMTime:(uint64_t)timeAsUInt withNewTimescale:(uint32_t)newTimescale

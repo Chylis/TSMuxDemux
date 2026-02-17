@@ -9,6 +9,7 @@
 #import "TSConstants.h"
 
 uint32_t const TS_TIMESTAMP_TIMESCALE = 90000;
+uint64_t const kNoPcr = UINT64_MAX;
 
 uint8_t const TS_PACKET_SIZE_188 = 188;
 uint8_t const TS_PACKET_SIZE_204 = 204;

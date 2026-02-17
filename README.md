@@ -145,7 +145,7 @@ The demuxer resolves raw PMT stream types and descriptors into `TSResolvedStream
 
 ## Muxer
 
-A "single program" muxer. Supports VBR (default) and CBR modes.
+A "single program" muxer. Supports VBR and CBR modes.
 
 ### Usage
 
@@ -161,17 +161,23 @@ A "single program" muxer. Supports VBR (default) and CBR modes.
 @end
 ```
 
-2) **Optional:** Configure settings:
+2) Configure settings (all properties are required):
 ```objc
 TSMuxerSettings *settings = [[TSMuxerSettings alloc] init];
-settings.pmtPid = 4096;            // Default: 4096
-settings.psiIntervalMs = 250;      // Default: 250ms (TR 101 290 requires <= 500ms)
-settings.targetBitrateKbps = 35000; // Default: 0 (VBR). Set > 0 for CBR with null-packet stuffing.
+settings.pmtPid = 4096;
+settings.videoPid = 200;
+settings.audioPid = 210;
+settings.pcrPid = 200;              // Typically same as videoPid
+settings.psiIntervalMs = 250;       // TR 101 290 requires <= 500ms
+settings.pcrIntervalMs = 30;        // ISO 13818-1 recommends <= 40ms
+settings.targetBitrateKbps = 35000; // 0 = VBR, > 0 = CBR with null-packet stuffing
+settings.maxNumQueuedAccessUnits = 300; // 0 = unlimited
 ```
 
 3) Create muxer:
 ```objc
-self.muxer = [[TSMuxer alloc] initWithSettings:settings delegate:self];
+uint64_t (^clock)(void) = ^{ return [TSTimeUtil nowHostTimeNanos]; };
+self.muxer = [[TSMuxer alloc] initWithSettings:settings wallClockNanos:clock delegate:self];
 ```
 
 4) Enqueue access units and call tick to emit packets:

@@ -23,6 +23,10 @@ typedef NSNumber *Pid; // NSNumber.unsignedShortValue (A PID is a 13-bit value i
 
 FOUNDATION_EXPORT uint32_t const TS_TIMESTAMP_TIMESCALE;
 
+/// Sentinel value meaning "no PCR".
+/// Safe because pcrBase is a 33-bit field (max legitimate value is 2^33-1).
+FOUNDATION_EXPORT uint64_t const kNoPcr;
+
 FOUNDATION_EXPORT uint8_t const TS_PACKET_SIZE_188;
 FOUNDATION_EXPORT uint8_t const TS_PACKET_SIZE_204;
 FOUNDATION_EXPORT uint8_t const TS_RS_PARITY_SIZE;

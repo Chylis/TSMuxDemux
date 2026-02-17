@@ -36,9 +36,8 @@
     // bit 1:           section syntax indicator = '1'
     // bit 2:           constant = '0'
     // bit 3-4:         reserved = '11'
-    // bit 5-6:         constant = '00'
-    // bit 7-8:         2 MSB of section length (a 10-bit field) specifying the number of bytes of the section starting immediately following the section_length field, and including the CRC
-    const uint8_t byte2 = 0x80 | 0x30 | ((sectionLength >> 8) & 0x03);
+    // bit 5-8:         4 MSB of section length (a 12-bit field) specifying the number of bytes of the section starting immediately following the section_length field, and including the CRC
+    const uint8_t byte2 = 0x80 | 0x30 | ((sectionLength >> 8) & 0x0F);
     [data appendBytes:&byte2 length:1];
     
     // PSI byte 3:      8 LSB of section length

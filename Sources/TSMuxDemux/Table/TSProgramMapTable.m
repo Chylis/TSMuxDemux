@@ -43,7 +43,7 @@
                 sectionSyntaxIndicator:PSI_SECTION_SYNTAX_INDICATOR
                 reservedBit1:PSI_PRIVATE_BIT
                 reservedBits2:PSI_RESERVED_BITS
-                sectionLength:sectionDataExcludingCrc.length
+                sectionLength:sectionDataExcludingCrc.length + PSI_CRC_LEN
                 sectionDataExcludingCrc:sectionDataExcludingCrc
                 crc:0];
     }
@@ -100,8 +100,14 @@
     
     // Program-descriptors skipped
     
+    // Sort elementary streams by PID for deterministic serialization.
+    // NSSet has no contractual enumeration order; without sorting, the CRC
+    // changes across serializations even when the logical content is unchanged.
+    NSSortDescriptor *pidSorter = [NSSortDescriptor sortDescriptorWithKey:@"pid" ascending:YES];
+    NSArray<TSElementaryStream*> *sortedStreams = [[elementaryStreams allObjects] sortedArrayUsingDescriptors:@[pidSorter]];
+
     // 5 bytes for each elementary stream in PMT
-    for (TSElementaryStream *es in elementaryStreams) {
+    for (TSElementaryStream *es in sortedStreams) {
         // Elementary stream byte 1:        stream type
         const uint8_t esByte1 = es.streamType;
         [sectionDataExcludingCrc appendBytes:&esByte1 length:1];
@@ -174,8 +180,8 @@
     if (self.psi.sectionDataExcludingCrc.length < 9) return 0;
     TSBitReader reader = TSBitReaderMakeWithBytes(
         (const uint8_t *)self.psi.sectionDataExcludingCrc.bytes + 7, 2);
-    TSBitReaderSkipBits(&reader, 6);  // reserved + unused
-    return TSBitReaderReadBits(&reader, 10);
+    TSBitReaderSkipBits(&reader, 4);  // reserved
+    return TSBitReaderReadBits(&reader, 12);
 }
 
 -(NSArray<TSDescriptor*> * _Nullable)programDescriptors
@@ -249,9 +255,9 @@
         // 3 bits: reserved, 13 bits: elementary PID
         TSBitReaderSkipBits(&reader, 3);
         const uint16_t esPid = TSBitReaderReadBits(&reader, 13);
-        // 4 bits: reserved, 2 bits: unused, 10 bits: ES_info_length
-        TSBitReaderSkipBits(&reader, 6);
-        const uint16_t esInfoLength = TSBitReaderReadBits(&reader, 10);
+        // 4 bits: reserved, 12 bits: ES_info_length
+        TSBitReaderSkipBits(&reader, 4);
+        const uint16_t esInfoLength = TSBitReaderReadBits(&reader, 12);
 
         if (reader.error) {
             TSLogWarn(@"PMT: read error while parsing ES entry for PID 0x%04X", esPid);

@@ -39,10 +39,16 @@
     return self;
 }
 
--(NSData* _Nonnull)toTsPacketPayload
+-(NSData* _Nonnull)toTsPacketPayloadWithEpoch:(CMTime)epoch
 {
-    const BOOL hasPTS = !CMTIME_IS_INVALID(self.pts);
-    const BOOL hasDTS = !CMTIME_IS_INVALID(self.dts);
+    const BOOL hasEpoch = CMTIME_IS_VALID(epoch);
+    const CMTime relativePts = (CMTIME_IS_VALID(self.pts) && hasEpoch)
+        ? CMTimeSubtract(self.pts, epoch) : self.pts;
+    const CMTime relativeDts = (CMTIME_IS_VALID(self.dts) && hasEpoch)
+        ? CMTimeSubtract(self.dts, epoch) : self.dts;
+
+    const BOOL hasPTS = CMTIME_IS_VALID(relativePts);
+    const BOOL hasDTS = CMTIME_IS_VALID(relativeDts);
 
     NSMutableData *header = [NSMutableData data];
 
@@ -80,10 +86,12 @@
     // bits 1-2:    10 (marker bits)
     // bits 3-4:    00 (not scrambled)
     // bit 5:       0 (priority)
-    // bit 6:       0 (data alignment)
+    // bit 6:       1 (data alignment - without data_stream_alignment_descriptor,
+    //                  this asserts alignment_type '01': video AU / audio sync word.
+    //                  Holds as long as only video and audio streams are muxed.)
     // bit 7:       0 (copyright)
     // bit 8:       0 (original or copy)
-    const uint8_t flags1 = 0b10000000;
+    const uint8_t flags1 = 0b10000100;
     [header appendBytes:&flags1 length:1];
 
     // Flags-2 (1 byte)
@@ -103,7 +111,7 @@
     [header appendBytes:&pesHeaderDataLength length:1];
 
     if (hasPTS) {
-        uint64_t pts = [TSTimeUtil convertTimeToUIntTime:self.pts withNewTimescale:TS_TIMESTAMP_TIMESCALE];
+        uint64_t pts = [TSTimeUtil convertTimeToUIntTime:relativePts withNewTimescale:TS_TIMESTAMP_TIMESCALE] & 0x1FFFFFFFFULL;
         // PTS (5 bytes)
         uint8_t ptsSection[TIMESTAMP_LENGTH];
         // bits 1-4:    0011 or 0010 (i.e. the four last bits of indicator)
@@ -124,7 +132,7 @@
         [header appendBytes:ptsSection length:TIMESTAMP_LENGTH];
 
         if (hasDTS) {
-            uint64_t dts = [TSTimeUtil convertTimeToUIntTime:self.dts withNewTimescale:TS_TIMESTAMP_TIMESCALE];
+            uint64_t dts = [TSTimeUtil convertTimeToUIntTime:relativeDts withNewTimescale:TS_TIMESTAMP_TIMESCALE] & 0x1FFFFFFFFULL;
             // DTS (5 bytes)
             uint8_t dtsSection[TIMESTAMP_LENGTH];
             // bits 1-4:    0001 (dts marker)

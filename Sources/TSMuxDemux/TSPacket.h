@@ -98,7 +98,7 @@ typedef NS_ENUM(uint8_t, TSAdaptationMode) {
 
 #pragma mark - TSPacket
 
-typedef void (^OnTsPacketDataCallback)(NSData * _Nonnull);
+typedef void (^OnTsPacketDataCallback)(NSData * _Nonnull, uint16_t pid, uint8_t cc);
 
 @interface TSPacket: NSObject
 
@@ -121,7 +121,6 @@ typedef void (^OnTsPacketDataCallback)(NSData * _Nonnull);
 /// @param randomAccessFlag If YES, the random_access_indicator will be set in the adaptation field of the first TS packet.
 +(void)packetizePayload:(NSData* _Nonnull)payload
                   track:(TSElementaryStream* _Nonnull)track
-              forcePusi:(BOOL)forcePusi
                 pcrBase:(uint64_t)pcrBase
                  pcrExt:(uint16_t)pcrExt
       discontinuityFlag:(BOOL)discontinuityFlag
