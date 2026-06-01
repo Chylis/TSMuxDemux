@@ -325,4 +325,73 @@ static const uint16_t kVideoPid3 = 0x301;
     XCTAssertEqualObjects(self.delegate.receivedPats[0].programmes[@2], @(kPmtPid2));
 }
 
+#pragma mark - Shared PID Tests
+
+- (void)test_multiProgram_sharedPid_survivesRemovalFromOneProgram {
+    // In an MPTS, two programs may reference the same elementary-stream PID.
+    // Dropping that PID from one program's PMT must NOT tear down the stream
+    // builder that the other program still relies on (regression test for the
+    // cross-program reference check in -updatePmt:).
+    //
+    // Program 1: [sharedVideo (kVideoPid1), audio (kAudioPid1)]
+    // Program 2: [sharedVideo (kVideoPid1)]   <- shares the video PID
+
+    NSDictionary *programmes = @{@1: @(kPmtPid1), @2: @(kPmtPid2)};
+    [self.demuxer demux:[TSTestUtils createPatDataWithProgrammes:programmes
+                                                   versionNumber:0
+                                               continuityCounter:0]
+             dataArrivalHostTimeNanos:0];
+
+    TSElementaryStream *sharedVideo = [[TSElementaryStream alloc] initWithPid:kVideoPid1
+                                                                   streamType:kRawStreamTypeH264
+                                                                  descriptors:nil];
+    TSElementaryStream *audio1 = [[TSElementaryStream alloc] initWithPid:kAudioPid1
+                                                              streamType:kRawStreamTypeADTSAAC
+                                                             descriptors:nil];
+    [self.demuxer demux:[TSTestUtils createPmtDataWithPmtPid:kPmtPid1
+                                               programNumber:1
+                                                      pcrPid:kVideoPid1
+                                                     streams:@[sharedVideo, audio1]
+                                               versionNumber:0
+                                           continuityCounter:0]
+             dataArrivalHostTimeNanos:0];
+    [self.demuxer demux:[TSTestUtils createPmtDataWithPmtPid:kPmtPid2
+                                               programNumber:2
+                                                      pcrPid:kVideoPid1
+                                                     streams:@[sharedVideo]
+                                               versionNumber:0
+                                           continuityCounter:0]
+             dataArrivalHostTimeNanos:0];
+
+    // Update program 1 to DROP the shared video PID (keep audio only).
+    // Program 2 still references kVideoPid1, so its builder must survive.
+    [self.demuxer demux:[TSTestUtils createPmtDataWithPmtPid:kPmtPid1
+                                               programNumber:1
+                                                      pcrPid:kAudioPid1
+                                                     streams:@[audio1]
+                                               versionNumber:1
+                                           continuityCounter:1]
+             dataArrivalHostTimeNanos:0];
+
+    // Feed PES on the shared PID. Two access units are sent so the first is
+    // delivered when the second one starts.
+    TSElementaryStream *track = [[TSElementaryStream alloc] initWithPid:kVideoPid1
+                                                             streamType:kRawStreamTypeH264
+                                                            descriptors:nil];
+    uint8_t nalData[] = {0x00, 0x00, 0x00, 0x01, 0x67, 0x42, 0x00, 0x1E,
+                         0x9A, 0x74, 0x05, 0x81, 0x10, 0x00, 0x00, 0x03};
+    NSData *payload = [NSData dataWithBytes:nalData length:sizeof(nalData)];
+    [self.demuxer demux:[TSTestUtils createPesDataWithTrack:track payload:payload pts:CMTimeMake(90000, 90000)]
+             dataArrivalHostTimeNanos:0];
+    [self.demuxer demux:[TSTestUtils createPesDataWithTrack:track payload:payload pts:CMTimeMake(93000, 90000)]
+             dataArrivalHostTimeNanos:0];
+
+    XCTAssertGreaterThanOrEqual(self.delegate.receivedAccessUnits.count, (NSUInteger)1,
+                                @"Shared PID's builder must survive removal from program 1 "
+                                @"because program 2 still references it");
+    if (self.delegate.receivedAccessUnits.count > 0) {
+        XCTAssertEqual(self.delegate.receivedAccessUnits[0].pid, kVideoPid1);
+    }
+}
+
 @end

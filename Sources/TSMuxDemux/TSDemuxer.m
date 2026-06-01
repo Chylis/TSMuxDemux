@@ -59,7 +59,6 @@
 {
     NSMutableDictionary<ProgramNumber,TSProgramMapTable*> *_pmts;
     NSDictionary<PmtPid, TSProgramMapTable*> *_pmtsByPid;
-    NSDictionary<Pid, TSProgramMapTable*> *_elementaryStreamPidToPmt;
 
     // Packet format auto-detection (0 = not yet detected)
     NSUInteger _packetSize;
@@ -92,7 +91,6 @@
     }
     _pat = pat;
     _pmtsByPid = nil;
-    _elementaryStreamPidToPmt = nil;
     [self.delegate demuxer:self didReceivePat:pat previousPat:prevPat];
 }
 
@@ -173,7 +171,7 @@
         if (![self shouldProcessEsPid:stream.pid]) {
             continue;
         }
-
+        
         // Keep pid if still present in new PMT
         [pidsToRemove removeObject:@(stream.pid)];
 
@@ -187,40 +185,30 @@
         }
     }
     
-    // Remove builders for no longer existing pids
+    
     if (pidsToRemove.count > 0) {
+        // Ensure no other program PMT references es-to-be-removed
+        [_pmts enumerateKeysAndObjectsUsingBlock:^(ProgramNumber otherProgram, TSProgramMapTable *otherPmt, BOOL *stop) {
+            if ([otherProgram isEqualToNumber:programNumber]) {
+                return;
+            }
+            for (TSElementaryStream *es in otherPmt.elementaryStreams) {
+                // Keep pid - still present in other programs PMT
+                [pidsToRemove removeObject:@(es.pid)];
+            }
+        }];
+        
         [self.streamBuilders removeObjectsForKeys:pidsToRemove.allObjects];
     }
 
     _pmts[programNumber] = pmt;
     _pmtsByPid = nil;
-    _elementaryStreamPidToPmt = nil;
     [self.delegate demuxer:self didReceivePmt:pmt previousPmt:prevPmt];
 }
 
 -(TSTr101290Statistics* _Nonnull)statistics
 {
     return self.tsPacketAnalyzer.stats;
-}
-
--(NSDictionary<Pid, TSProgramMapTable*>*)elementaryStreamPidToPmtMap
-{
-    if (_elementaryStreamPidToPmt) {
-        return _elementaryStreamPidToPmt;
-    }
-    NSMutableDictionary *map = [NSMutableDictionary dictionary];
-    for (TSProgramMapTable *pmt in [_pmts allValues]) {
-        for (TSElementaryStream *es in pmt.elementaryStreams) {
-            map[@(es.pid)] = pmt;
-        }
-    }
-    _elementaryStreamPidToPmt = map;
-    return _elementaryStreamPidToPmt;
-}
-
--(TSProgramMapTable* _Nullable)pmtForPid:(uint16_t)pid
-{
-    return [self elementaryStreamPidToPmtMap][@(pid)];
 }
 
 /// Returns PMTs keyed by their PID (for TR101290 analysis).
