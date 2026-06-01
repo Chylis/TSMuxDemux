@@ -12,6 +12,7 @@
 
 /// Raw stream_type values for muxing. Use TSResolvedStreamType for demuxing/codec identification.
 extern const uint8_t kRawStreamTypeH264;      // 0x1B - ITU-T H.264 / AVC
+extern const uint8_t kRawStreamTypeH265;      // 0x24 - ITU-T H.265 / HEVC
 extern const uint8_t kRawStreamTypeADTSAAC;   // 0x0F - ISO/IEC 13818-7 AAC with ADTS
 
 /// Resolved elementary stream content format, derived from raw PMT stream_type and descriptors.

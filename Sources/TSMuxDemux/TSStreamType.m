@@ -15,6 +15,7 @@
 
 // Public (for muxing)
 const uint8_t kRawStreamTypeH264    = 0x1B; // ITU-T H.264 / AVC
+const uint8_t kRawStreamTypeH265    = 0x24; // ITU-T H.265 / HEVC
 const uint8_t kRawStreamTypeADTSAAC = 0x0F; // ISO/IEC 13818-7 AAC with ADTS
 
 // ISO/IEC 13818-1 / ITU-T H.222.0 stream types (shared by DVB and ATSC)
@@ -23,7 +24,6 @@ static const uint8_t kRawStreamTypeMPEG1Audio   = 0x03; // ISO/IEC 11172-3
 static const uint8_t kRawStreamTypeMPEG2Audio   = 0x04; // ISO/IEC 13818-3
 static const uint8_t kRawStreamTypePrivateData  = 0x06; // PES private data
 static const uint8_t kRawStreamTypeLATMAAC      = 0x11; // ISO/IEC 14496-3
-static const uint8_t kRawStreamTypeH265         = 0x24; // ITU-T H.265
 
 // ATSC A/53 stream types (user private range 0x80-0xFF)
 static const uint8_t kRawStreamTypeATSC_AC3     = 0x81; // ATSC A/52 Dolby Digital
