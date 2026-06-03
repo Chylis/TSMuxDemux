@@ -16,7 +16,6 @@
 
 #pragma mark - TSMuxerSettings
 
-#define MAX_TARGET_BITRATE_KBPS 60000 // safety net
 #define STATS_LOG_INTERVAL_MS 10000
 
 @implementation TSMuxerSettings
@@ -156,9 +155,6 @@ typedef struct {
     }
     if (settings.pcrIntervalMs == 0) {
         [NSException raise:@"TSMuxerInvalidSettingsException" format:@"PCR interval must be > 0"];
-    }
-    if (settings.targetBitrateKbps > MAX_TARGET_BITRATE_KBPS) {
-        [NSException raise:@"TSMuxerInvalidSettingsException" format:@"Target bitrate must be <= %d kbps", MAX_TARGET_BITRATE_KBPS];
     }
 }
 
