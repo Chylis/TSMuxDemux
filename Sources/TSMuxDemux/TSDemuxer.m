@@ -132,16 +132,52 @@
     // Reset TR101290 state for PIDs transitioning from excluded to included
     [self.tsPacketAnalyzer handleFilterChangeFromOldFilter:oldFilter toNewFilter:_esPidFilter];
 
-    // Remove stream builders for PIDs no longer in the filter
-    if (_esPidFilter.count > 0) {
-        NSMutableArray *pidsToRemove = [NSMutableArray array];
-        for (NSNumber *pid in self.streamBuilders) {
-            if (![_esPidFilter containsObject:pid]) {
-                [pidsToRemove addObject:pid];
+    [self syncStreamBuilders];
+}
+
+/// Reconciles streamBuilders with its single source of truth: a builder
+/// exists exactly for the PIDs that are declared as elementary streams in a
+/// known PMT and pass the ES PID filter, carrying that stream's type and
+/// descriptors. Builders whose stream metadata is unchanged are kept - they
+/// hold continuity and partial access-unit state - including for PIDs shared
+/// between programs; extinct ones are removed, missing ones created, and ones
+/// whose declared stream metadata changed are recreated (their partial state
+/// belongs to the old stream definition). For a PID declared by several
+/// programs, the lowest program number wins, deterministically.
+-(void)syncStreamBuilders
+{
+    NSMutableDictionary<NSNumber*, TSElementaryStream*> *desired = [NSMutableDictionary dictionary];
+    NSArray<ProgramNumber> *programNumbers = [[_pmts allKeys] sortedArrayUsingSelector:@selector(compare:)];
+    for (ProgramNumber programNumber in programNumbers) {
+        for (TSElementaryStream *stream in _pmts[programNumber].elementaryStreams) {
+            if (desired[@(stream.pid)] == nil && [self shouldProcessEsPid:stream.pid]) {
+                desired[@(stream.pid)] = stream;
             }
         }
-        [self.streamBuilders removeObjectsForKeys:pidsToRemove];
     }
+
+    NSMutableArray<NSNumber*> *pidsToRemove = [NSMutableArray array];
+    for (NSNumber *pid in self.streamBuilders) {
+        if (desired[pid] == nil) {
+            [pidsToRemove addObject:pid];
+        }
+    }
+    [self.streamBuilders removeObjectsForKeys:pidsToRemove];
+
+    [desired enumerateKeysAndObjectsUsingBlock:^(NSNumber *pid, TSElementaryStream *stream, BOOL *stop) {
+        TSElementaryStreamBuilder *builder = [self.streamBuilders objectForKey:pid];
+        if (builder
+            && builder.streamType == stream.streamType
+            && (builder.descriptors == stream.descriptors
+                || [builder.descriptors isEqualToArray:stream.descriptors])) {
+            return;
+        }
+        builder = [[TSElementaryStreamBuilder alloc] initWithDelegate:self
+                                                                  pid:stream.pid
+                                                           streamType:stream.streamType
+                                                          descriptors:stream.descriptors];
+        [self.streamBuilders setObject:builder forKey:pid];
+    }];
 }
 
 /// Returns YES if this elementary stream PID should be processed.
@@ -161,48 +197,9 @@
         return;
     }
 
-    // Mark all pids in prev PMT for removal
-    NSMutableSet *pidsToRemove = [NSMutableSet set];
-    [prevPmt.elementaryStreams enumerateObjectsUsingBlock:^(TSElementaryStream *es, BOOL *stop) {
-        [pidsToRemove addObject:@(es.pid)];
-    }];
-    
-    for (TSElementaryStream *stream in pmt.elementaryStreams) {
-        if (![self shouldProcessEsPid:stream.pid]) {
-            continue;
-        }
-        
-        // Keep pid if still present in new PMT
-        [pidsToRemove removeObject:@(stream.pid)];
-
-        TSElementaryStreamBuilder *builder = [self.streamBuilders objectForKey:@(stream.pid)];
-        if (!builder) {
-            builder = [[TSElementaryStreamBuilder alloc] initWithDelegate:self
-                                                                      pid:stream.pid
-                                                               streamType:stream.streamType
-                                                              descriptors:stream.descriptors];
-            [self.streamBuilders setObject:builder forKey:@(stream.pid)];
-        }
-    }
-    
-    
-    if (pidsToRemove.count > 0) {
-        // Ensure no other program PMT references es-to-be-removed
-        [_pmts enumerateKeysAndObjectsUsingBlock:^(ProgramNumber otherProgram, TSProgramMapTable *otherPmt, BOOL *stop) {
-            if ([otherProgram isEqualToNumber:programNumber]) {
-                return;
-            }
-            for (TSElementaryStream *es in otherPmt.elementaryStreams) {
-                // Keep pid - still present in other programs PMT
-                [pidsToRemove removeObject:@(es.pid)];
-            }
-        }];
-        
-        [self.streamBuilders removeObjectsForKeys:pidsToRemove.allObjects];
-    }
-
     _pmts[programNumber] = pmt;
     _pmtsByPid = nil;
+    [self syncStreamBuilders];
     [self.delegate demuxer:self didReceivePmt:pmt previousPmt:prevPmt];
 }
 

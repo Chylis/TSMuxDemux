@@ -340,6 +340,58 @@ static const uint16_t kTestAudio2Pid = 0x103;
     XCTAssertGreaterThanOrEqual(audio2Count, 1, @"Should receive data on replacement stream");
 }
 
+- (void)test_pmtUpdate_samePidChangedStreamType_accessUnitsCarryNewType {
+    // Initial PMT declares the PID as H264
+    TSElementaryStream *h264Stream = [[TSElementaryStream alloc] initWithPid:kTestVideoPid
+                                                                  streamType:kRawStreamTypeH264
+                                                                 descriptors:nil];
+    [self.demuxer demux:[TSTestUtils createPmtDataWithPmtPid:kTestPmtPid
+                                                      pcrPid:kTestVideoPid
+                                                     streams:@[h264Stream]
+                                               versionNumber:0
+                                           continuityCounter:0]
+             dataArrivalHostTimeNanos:0];
+
+    uint8_t payloadBytes[] = {0x00, 0x00, 0x00, 0x01, 0x09, 0xF0};
+    NSData *payload = [NSData dataWithBytes:payloadBytes length:sizeof(payloadBytes)];
+    TSElementaryStream *track = [[TSElementaryStream alloc] initWithPid:kTestVideoPid
+                                                             streamType:kRawStreamTypeH264
+                                                            descriptors:nil];
+    [self.demuxer demux:[TSTestUtils createPesDataWithTrack:track payload:payload pts:CMTimeMake(0, 90000)]
+             dataArrivalHostTimeNanos:0];
+    [self.demuxer demux:[TSTestUtils createPesDataWithTrack:track payload:payload pts:CMTimeMake(3000, 90000)]
+             dataArrivalHostTimeNanos:0];
+
+    XCTAssertGreaterThanOrEqual(self.delegate.receivedAccessUnits.count, 1);
+    XCTAssertEqual(self.delegate.receivedAccessUnits.lastObject.streamType, kRawStreamTypeH264);
+
+    // Updated PMT re-declares the same PID as AAC: the stream builder must be
+    // rebuilt so access units carry the new stream type
+    TSElementaryStream *aacStream = [[TSElementaryStream alloc] initWithPid:kTestVideoPid
+                                                                 streamType:kRawStreamTypeADTSAAC
+                                                                descriptors:nil];
+    [self.demuxer demux:[TSTestUtils createPmtDataWithPmtPid:kTestPmtPid
+                                                      pcrPid:kTestVideoPid
+                                                     streams:@[aacStream]
+                                               versionNumber:1
+                                           continuityCounter:1]
+             dataArrivalHostTimeNanos:0];
+
+    TSElementaryStream *aacTrack = [[TSElementaryStream alloc] initWithPid:kTestVideoPid
+                                                                streamType:kRawStreamTypeADTSAAC
+                                                               descriptors:nil];
+    aacTrack.continuityCounter = track.continuityCounter;
+    [self.demuxer demux:[TSTestUtils createPesDataWithTrack:aacTrack payload:payload pts:CMTimeMake(6000, 90000)]
+             dataArrivalHostTimeNanos:0];
+    [self.demuxer demux:[TSTestUtils createPesDataWithTrack:aacTrack payload:payload pts:CMTimeMake(9000, 90000)]
+             dataArrivalHostTimeNanos:0];
+
+    TSAccessUnit *lastAu = self.delegate.receivedAccessUnits.lastObject;
+    XCTAssertEqual(lastAu.pid, kTestVideoPid);
+    XCTAssertEqual(lastAu.streamType, kRawStreamTypeADTSAAC,
+                   @"Access units after the PMT change should carry the new stream type");
+}
+
 #pragma mark - No-Change Tests
 
 - (void)test_pmtUpdate_identicalPmt_noCallback {
