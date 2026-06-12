@@ -34,19 +34,19 @@ static const uint16_t kTestAudioPid = 0x102;
     for (int i = 0; i < 5; i++) {
         NSData *packetData = [TSTestUtils createValidPacketWithPid:0x100 continuityCounter:i];
         NSArray<TSPacket *> *packets = [TSPacket packetsFromChunkedTsData:packetData packetSize:TS_PACKET_SIZE_188];
-        TSTr101290AnalyzeContext *context = [[TSTr101290AnalyzeContext alloc] initWithPat:nil pmts:nil nowMs:i * 10 completedSections:@[] esPidFilter:nil];
+        TSTr101290AnalyzeContext *context = [[TSTr101290AnalyzeContext alloc] initWithPat:nil pmts:nil nowMs:i * 10 completedSections:@[] esPidWhitelist:nil];
         [self.analyzer analyzeTsPacket:packets.firstObject context:context];
     }
 }
 
 /// Create a context with PAT and PMT for testing
 - (TSTr101290AnalyzeContext *)createContextWithPatAndPmtAtMs:(uint64_t)nowMs {
-    return [self createContextWithPatAndPmtAtMs:nowMs esPidFilter:nil];
+    return [self createContextWithPatAndPmtAtMs:nowMs esPidWhitelist:nil];
 }
 
 /// Create a context with PAT, PMT, and optional ES PID filter for testing
 - (TSTr101290AnalyzeContext *)createContextWithPatAndPmtAtMs:(uint64_t)nowMs
-                                                 esPidFilter:(NSSet<NSNumber*>*)esPidFilter {
+                                                 esPidWhitelist:(NSSet<NSNumber*>*)esPidWhitelist {
     TSProgramAssociationTable *pat = [[TSProgramAssociationTable alloc]
                                       initWithTransportStreamId:1
                                       programmes:@{@1: @(kTestPmtPid)}];
@@ -64,7 +64,7 @@ static const uint16_t kTestAudioPid = 0x102;
 
     NSDictionary *pmts = @{@(kTestPmtPid): pmt};
 
-    return [[TSTr101290AnalyzeContext alloc] initWithPat:pat pmts:pmts nowMs:nowMs completedSections:@[] esPidFilter:esPidFilter];
+    return [[TSTr101290AnalyzeContext alloc] initWithPat:pat pmts:pmts nowMs:nowMs completedSections:@[] esPidWhitelist:esPidWhitelist];
 }
 
 #pragma mark - Sync Acquisition Tests
@@ -79,7 +79,7 @@ static const uint16_t kTestAudioPid = 0x102;
     for (int i = 0; i < 4; i++) {
         NSData *packetData = [TSTestUtils createValidPacketWithPid:0x100 continuityCounter:i];
         NSArray<TSPacket *> *packets = [TSPacket packetsFromChunkedTsData:packetData packetSize:TS_PACKET_SIZE_188];
-        TSTr101290AnalyzeContext *context = [[TSTr101290AnalyzeContext alloc] initWithPat:nil pmts:nil nowMs:i * 10 completedSections:@[] esPidFilter:nil];
+        TSTr101290AnalyzeContext *context = [[TSTr101290AnalyzeContext alloc] initWithPat:nil pmts:nil nowMs:i * 10 completedSections:@[] esPidWhitelist:nil];
         [self.analyzer analyzeTsPacket:packets.firstObject context:context];
     }
 
@@ -130,7 +130,7 @@ static const uint16_t kTestAudioPid = 0x102;
     // After recovery with valid packet
     NSData *validData = [TSTestUtils createValidPacketWithPid:0x100 continuityCounter:5];
     NSArray<TSPacket *> *packets = [TSPacket packetsFromChunkedTsData:validData packetSize:TS_PACKET_SIZE_188];
-    TSTr101290AnalyzeContext *context = [[TSTr101290AnalyzeContext alloc] initWithPat:nil pmts:nil nowMs:100 completedSections:@[] esPidFilter:nil];
+    TSTr101290AnalyzeContext *context = [[TSTr101290AnalyzeContext alloc] initWithPat:nil pmts:nil nowMs:100 completedSections:@[] esPidWhitelist:nil];
     [self.analyzer analyzeTsPacket:packets.firstObject context:context];
 
     XCTAssertEqual(stats.prio1.tsSyncLoss, initialSyncLoss,
@@ -212,7 +212,7 @@ static const uint16_t kTestAudioPid = 0x102;
     NSArray<TSPacket *> *packets = [TSPacket packetsFromChunkedTsData:scrambledPatData packetSize:TS_PACKET_SIZE_188];
 
     if (packets.count > 0) {
-        TSTr101290AnalyzeContext *context = [[TSTr101290AnalyzeContext alloc] initWithPat:nil pmts:nil nowMs:100 completedSections:@[] esPidFilter:nil];
+        TSTr101290AnalyzeContext *context = [[TSTr101290AnalyzeContext alloc] initWithPat:nil pmts:nil nowMs:100 completedSections:@[] esPidWhitelist:nil];
         [self.analyzer analyzeTsPacket:packets.firstObject context:context];
 
         XCTAssertGreaterThan(stats.prio1.patError, initialPatErrors,
@@ -261,7 +261,7 @@ static const uint16_t kTestAudioPid = 0x102;
                                              pmts:nil
                                              nowMs:startMs
                                              completedSections:@[completedPat]
-                                             esPidFilter:nil];
+                                             esPidWhitelist:nil];
         [self.analyzer analyzeTsPacket:patPackets.firstObject context:context];
     }
 
@@ -272,7 +272,7 @@ static const uint16_t kTestAudioPid = 0x102;
 
     if (videoPackets.count > 0) {
         TSTr101290AnalyzeContext *context = [[TSTr101290AnalyzeContext alloc]
-                                             initWithPat:nil pmts:nil nowMs:startMs + 600 completedSections:@[] esPidFilter:nil];
+                                             initWithPat:nil pmts:nil nowMs:startMs + 600 completedSections:@[] esPidWhitelist:nil];
         [self.analyzer analyzeTsPacket:videoPackets.firstObject context:context];
     }
 
@@ -459,7 +459,7 @@ static const uint16_t kTestAudioPid = 0x102;
 
     if (packets.count > 0) {
         TSTr101290AnalyzeContext *context = [[TSTr101290AnalyzeContext alloc]
-                                             initWithPat:pat pmts:nil nowMs:100 completedSections:@[] esPidFilter:nil];
+                                             initWithPat:pat pmts:nil nowMs:100 completedSections:@[] esPidWhitelist:nil];
         [self.analyzer analyzeTsPacket:packets.firstObject context:context];
 
         XCTAssertGreaterThan(stats.prio1.pmtError, initialPmtErrors,
@@ -497,7 +497,7 @@ static const uint16_t kTestAudioPid = 0x102;
                                              pmts:nil
                                              nowMs:startMs
                                              completedSections:@[completedPmt]
-                                             esPidFilter:nil];
+                                             esPidWhitelist:nil];
         [self.analyzer analyzeTsPacket:pmtPackets.firstObject context:context];
     }
 
@@ -509,7 +509,7 @@ static const uint16_t kTestAudioPid = 0x102;
 
     if (videoPackets.count > 0) {
         TSTr101290AnalyzeContext *context = [[TSTr101290AnalyzeContext alloc]
-                                             initWithPat:pat pmts:nil nowMs:startMs + 600 completedSections:@[] esPidFilter:nil];
+                                             initWithPat:pat pmts:nil nowMs:startMs + 600 completedSections:@[] esPidWhitelist:nil];
         [self.analyzer analyzeTsPacket:videoPackets.firstObject context:context];
     }
 
@@ -577,7 +577,7 @@ static const uint16_t kTestAudioPid = 0x102;
     NSArray<TSPacket *> *packets = [TSPacket packetsFromChunkedTsData:nullData packetSize:TS_PACKET_SIZE_188];
 
     for (TSPacket *packet in packets) {
-        TSTr101290AnalyzeContext *context = [[TSTr101290AnalyzeContext alloc] initWithPat:nil pmts:nil nowMs:100 completedSections:@[] esPidFilter:nil];
+        TSTr101290AnalyzeContext *context = [[TSTr101290AnalyzeContext alloc] initWithPat:nil pmts:nil nowMs:100 completedSections:@[] esPidWhitelist:nil];
         [self.analyzer analyzeTsPacket:packet context:context];
     }
 
@@ -658,7 +658,7 @@ static const uint16_t kTestAudioPid = 0x102;
         NSData *audioData = [TSTestUtils createValidPacketWithPid:kTestAudioPid continuityCounter:i];
         NSArray<TSPacket *> *audioPackets = [TSPacket packetsFromChunkedTsData:audioData packetSize:TS_PACKET_SIZE_188];
         // Space packets 2 seconds apart (within 5s threshold for audio)
-        TSTr101290AnalyzeContext *context = [self createContextWithPatAndPmtAtMs:i * 2000 esPidFilter:audioOnlyFilter];
+        TSTr101290AnalyzeContext *context = [self createContextWithPatAndPmtAtMs:i * 2000 esPidWhitelist:audioOnlyFilter];
         [self.analyzer analyzeTsPacket:audioPackets.firstObject context:context];
     }
 
@@ -681,7 +681,7 @@ static const uint16_t kTestAudioPid = 0x102;
     for (uint8_t cc = 0; cc < 3; cc++) {
         NSData *videoData = [TSTestUtils createValidPacketWithPid:kTestVideoPid continuityCounter:cc];
         NSArray<TSPacket *> *packets = [TSPacket packetsFromChunkedTsData:videoData packetSize:TS_PACKET_SIZE_188];
-        TSTr101290AnalyzeContext *context = [self createContextWithPatAndPmtAtMs:cc * 10 esPidFilter:videoFilter];
+        TSTr101290AnalyzeContext *context = [self createContextWithPatAndPmtAtMs:cc * 10 esPidWhitelist:videoFilter];
         [self.analyzer analyzeTsPacket:packets.firstObject context:context];
     }
 
@@ -699,7 +699,7 @@ static const uint16_t kTestAudioPid = 0x102;
     // Send video packet with CC=103 % 16 = 7 (what stream would have after gap)
     NSData *videoDataAfterGap = [TSTestUtils createValidPacketWithPid:kTestVideoPid continuityCounter:103 % 16];
     NSArray<TSPacket *> *packetsAfterGap = [TSPacket packetsFromChunkedTsData:videoDataAfterGap packetSize:TS_PACKET_SIZE_188];
-    TSTr101290AnalyzeContext *contextAfterGap = [self createContextWithPatAndPmtAtMs:10000 esPidFilter:videoFilter];
+    TSTr101290AnalyzeContext *contextAfterGap = [self createContextWithPatAndPmtAtMs:10000 esPidWhitelist:videoFilter];
     [self.analyzer analyzeTsPacket:packetsAfterGap.firstObject context:contextAfterGap];
 
     // State was reset, so CC=7 is treated as first packet - no error
@@ -719,7 +719,7 @@ static const uint16_t kTestAudioPid = 0x102;
     // Phase 1: Track video PID at T=0 (filter includes video)
     NSData *videoData = [TSTestUtils createValidPacketWithPid:kTestVideoPid continuityCounter:0];
     NSArray<TSPacket *> *videoPackets = [TSPacket packetsFromChunkedTsData:videoData packetSize:TS_PACKET_SIZE_188];
-    TSTr101290AnalyzeContext *context0 = [self createContextWithPatAndPmtAtMs:0 esPidFilter:videoFilter];
+    TSTr101290AnalyzeContext *context0 = [self createContextWithPatAndPmtAtMs:0 esPidWhitelist:videoFilter];
     [self.analyzer analyzeTsPacket:videoPackets.firstObject context:context0];
 
     uint64_t pidErrorsAfterPhase1 = stats.prio1.pidError;
@@ -735,7 +735,7 @@ static const uint16_t kTestAudioPid = 0x102;
     // Send video packet at T=6000
     NSData *videoData2 = [TSTestUtils createValidPacketWithPid:kTestVideoPid continuityCounter:1];
     NSArray<TSPacket *> *videoPackets2 = [TSPacket packetsFromChunkedTsData:videoData2 packetSize:TS_PACKET_SIZE_188];
-    TSTr101290AnalyzeContext *context1 = [self createContextWithPatAndPmtAtMs:6000 esPidFilter:videoFilter];
+    TSTr101290AnalyzeContext *context1 = [self createContextWithPatAndPmtAtMs:6000 esPidWhitelist:videoFilter];
     [self.analyzer analyzeTsPacket:videoPackets2.firstObject context:context1];
 
     // State was reset, so T=6000 is treated as first sighting - no interval error
@@ -791,7 +791,7 @@ static const uint16_t kTestAudioPid = 0x102;
 }
 
 - (void)test_demux_corruptedPacketsSeparatedByFilteredPacket_noSyncLoss {
-    self.demuxer.esPidFilter = [NSSet setWithObject:@(0x200)];  // filters out PID 0x100
+    self.demuxer.esPidWhitelist = [NSSet set];  // block all ES PIDs
 
     NSMutableData *chunk = [NSMutableData data];
     [chunk appendData:[TSTestUtils createPacketWithCorruptedSyncByte:0x00 pid:0x100 continuityCounter:5]];

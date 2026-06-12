@@ -335,8 +335,9 @@ static const uint64_t kSyncAcquisitionThreshold = 5;
                 continue;
             }
 
-            // Skip PIDs excluded by ES filter (avoids false positive PID errors)
-            if (context.esPidFilter.count > 0 && ![context.esPidFilter containsObject:@(es.pid)]) {
+            // Skip PIDs excluded by the ES PID whitelist (their packets never
+            // reach the analyzer, so they would otherwise raise false PID errors)
+            if (context.esPidWhitelist != nil && ![context.esPidWhitelist containsObject:@(es.pid)]) {
                 continue;
             }
 
@@ -454,15 +455,17 @@ static const uint64_t kSyncAcquisitionThreshold = 5;
 
 -(BOOL)wasPid:(NSNumber*)pid excludedByFilter:(NSSet<NSNumber*>*)filter
 {
-    // Empty/nil filter means all PIDs were included, so none were excluded
-    if (filter.count == 0) return NO;
+    // nil whitelist means all PIDs were included, so none were excluded;
+    // an empty whitelist excluded everything
+    if (filter == nil) return NO;
     return ![filter containsObject:pid];
 }
 
 -(BOOL)willPid:(NSNumber*)pid beIncludedByFilter:(NSSet<NSNumber*>*)filter
 {
-    // Empty/nil filter means all PIDs will be included
-    if (filter.count == 0) return YES;
+    // nil whitelist means all PIDs will be included;
+    // an empty whitelist includes none
+    if (filter == nil) return YES;
     return [filter containsObject:pid];
 }
 

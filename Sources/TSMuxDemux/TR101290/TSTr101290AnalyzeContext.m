@@ -13,7 +13,7 @@
                                pmts:(NSDictionary<PmtPid, TSProgramMapTable*>* _Nullable)pmts
                               nowMs:(uint64_t)nowMs
                   completedSections:(NSArray<TSTr101290CompletedSection*>* _Nonnull)completedSections
-                        esPidFilter:(NSSet<NSNumber*>* _Nullable)esPidFilter
+                        esPidWhitelist:(NSSet<NSNumber*>* _Nullable)esPidWhitelist
 {
     self = [super init];
     if (self) {
@@ -21,7 +21,7 @@
         _pmts = pmts;
         _nowMs = nowMs;
         _completedSections = completedSections;
-        _esPidFilter = esPidFilter;
+        _esPidWhitelist = esPidWhitelist;
     }
     return self;
 }

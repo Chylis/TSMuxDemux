@@ -118,19 +118,21 @@
     }
 }
 
--(void)setEsPidFilter:(NSSet<NSNumber*>*)esPidFilter
+-(void)setEsPidWhitelist:(NSSet<NSNumber*>*)esPidWhitelist
 {
-    NSSet<NSNumber*> *oldFilter = _esPidFilter;
-    _esPidFilter = [esPidFilter copy];
+    NSSet<NSNumber*> *oldFilter = _esPidWhitelist;
+    _esPidWhitelist = [esPidWhitelist copy];
 
-    if (_esPidFilter.count == 0) {
-        TSLogDebug(@"ES PID filter: disabled (processing all PIDs)");
+    if (_esPidWhitelist == nil) {
+        TSLogDebug(@"ES PID whitelist: none (processing all ES PIDs)");
+    } else if (_esPidWhitelist.count == 0) {
+        TSLogDebug(@"ES PID whitelist: empty (blocking all ES PIDs)");
     } else {
-        TSLogDebug(@"ES PID filter: %@", _esPidFilter);
+        TSLogDebug(@"ES PID whitelist: %@", _esPidWhitelist);
     }
 
     // Reset TR101290 state for PIDs transitioning from excluded to included
-    [self.tsPacketAnalyzer handleFilterChangeFromOldFilter:oldFilter toNewFilter:_esPidFilter];
+    [self.tsPacketAnalyzer handleFilterChangeFromOldFilter:oldFilter toNewFilter:_esPidWhitelist];
 
     [self syncStreamBuilders];
 }
@@ -183,10 +185,11 @@
 /// Returns YES if this elementary stream PID should be processed.
 -(BOOL)shouldProcessEsPid:(uint16_t)pid
 {
-    if (!_esPidFilter || _esPidFilter.count == 0) {
-        return YES;
+    if (_esPidWhitelist == nil) {
+        return YES;  // no whitelist - all ES PIDs are processed
     }
-    return [_esPidFilter containsObject:@(pid)];
+    // An empty whitelist blocks all ES PIDs
+    return [_esPidWhitelist containsObject:@(pid)];
 }
 
 -(void)updatePmt:(TSProgramMapTable*)pmt
@@ -400,7 +403,7 @@
                                              pmts:self.pmtsByPid
                                              nowMs:dataArrivalHostTimeNanos / 1000000
                                              completedSections:self.pendingCompletedSections
-                                             esPidFilter:_esPidFilter];
+                                             esPidWhitelist:_esPidWhitelist];
         [self.tsPacketAnalyzer analyzeTsPacket:tsPacket context:context];
         [self.pendingCompletedSections removeAllObjects];
 
