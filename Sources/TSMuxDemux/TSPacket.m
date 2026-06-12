@@ -400,51 +400,58 @@
         NSData *tsPacketData = [NSData dataWithBytesNoCopy:(void*)chunk.bytes + (i * packetSize)
                                                     length:TS_PACKET_SIZE_188
                                               freeWhenDone:NO];
-        const TSPacketHeader *header = [TSPacketHeader initWithTsPacketData:tsPacketData];
-        if (!header) {
+        TSPacket *packet = [TSPacket packetWithTsPacketData:tsPacketData];
+        if (packet) {
+            [packets addObject:packet];
+        }
+    }
+
+    return packets;
+}
+
++(TSPacket* _Nullable)packetWithTsPacketData:(NSData* _Nonnull)tsPacketData
+{
+    const TSPacketHeader *header = [TSPacketHeader initWithTsPacketData:tsPacketData];
+    if (!header) {
+        return nil;
+    }
+
+    // Skip packets with transport error indicator set - payload is unreliable
+    if (header.transportErrorIndicator) {
+        TSLogError(@"Skipping TS packet with transport error indicator set (PID=%u)", header.pid);
+        return nil;
+    }
+
+    TSAdaptationField *adaptationField = nil;
+    NSData *payload = nil;
+
+    const BOOL hasAdaptationField =
+    header.adaptationMode == TSAdaptationModeAdaptationOnly
+    || header.adaptationMode == TSAdaptationModeAdaptationAndPayload;
+    if (hasAdaptationField) {
+        adaptationField = [TSAdaptationField initWithTsPacketData:tsPacketData];
+    }
+
+    const BOOL hasPayload = header.adaptationMode != TSAdaptationModeAdaptationOnly;
+    if (hasPayload) {
+        const NSUInteger payloadOffset =
+        TS_PACKET_HEADER_SIZE
+        + (hasAdaptationField ? 1 : 0) // + 1 for the first byte of the adaptation header itself
+        + (adaptationField.adaptationFieldLength ?: 0);
+        if (payloadOffset >= TS_PACKET_SIZE_188) {
+            TSLogError(@"Invalid TS packet: payloadOffset %lu exceeds packet size (adaptation_field_length=%u)",
+                       (unsigned long)payloadOffset, adaptationField.adaptationFieldLength);
             return nil;
         }
-        
-        // Skip packets with transport error indicator set - payload is unreliable
-        if (header.transportErrorIndicator) {
-            TSLogError(@"Skipping TS packet with transport error indicator set (PID=%u)", header.pid);
-            continue;
-        }
-        
-        TSAdaptationField *adaptationField = nil;
-        NSData *payload = nil;
-        
-        const BOOL hasAdaptationField =
-        header.adaptationMode == TSAdaptationModeAdaptationOnly
-        || header.adaptationMode == TSAdaptationModeAdaptationAndPayload;
-        if (hasAdaptationField) {
-            adaptationField = [TSAdaptationField initWithTsPacketData:tsPacketData];
-        }
-        
-        const BOOL hasPayload = header.adaptationMode != TSAdaptationModeAdaptationOnly;
-        if (hasPayload) {
-            const NSUInteger payloadOffset =
-            TS_PACKET_HEADER_SIZE
-            + (hasAdaptationField ? 1 : 0) // + 1 for the first byte of the adaptation header itself
-            + (adaptationField.adaptationFieldLength ?: 0);
-            if (payloadOffset >= TS_PACKET_SIZE_188) {
-                TSLogError(@"Invalid TS packet: payloadOffset %lu exceeds packet size (adaptation_field_length=%u)",
-                           (unsigned long)payloadOffset, adaptationField.adaptationFieldLength);
-                continue;
-            }
-            const NSUInteger payloadLength = TS_PACKET_SIZE_188 - payloadOffset;
-            payload = [NSData dataWithBytesNoCopy:(void*)tsPacketData.bytes + payloadOffset
-                                           length:payloadLength
-                                     freeWhenDone:NO];
-        }
-        
-        TSPacket *packet = [[TSPacket alloc] initWithHeader:(TSPacketHeader* _Nonnull)header
-                                            adaptationField:adaptationField
-                                                    payload:payload];
-        [packets addObject:packet];
+        const NSUInteger payloadLength = TS_PACKET_SIZE_188 - payloadOffset;
+        payload = [NSData dataWithBytesNoCopy:(void*)tsPacketData.bytes + payloadOffset
+                                       length:payloadLength
+                                 freeWhenDone:NO];
     }
-    
-    return packets;
+
+    return [[TSPacket alloc] initWithHeader:(TSPacketHeader* _Nonnull)header
+                            adaptationField:adaptationField
+                                    payload:payload];
 }
 
 +(void)packetizePayload:(NSData* _Nonnull)payload

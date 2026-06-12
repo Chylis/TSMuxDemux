@@ -74,47 +74,11 @@ uint64_t const TR101290_PID_INTERVAL_MS = 5000;
 
 +(BOOL)isReservedPid:(uint16_t)pid
 {
-    return [[TSPidUtil reservedPids] containsObject:@(pid)];
-}
-
-+(NSArray<NSNumber*>*)reservedPids
-{
-    static NSArray<NSNumber*> *cachedPids = nil;
-    if (cachedPids) return cachedPids;
-    cachedPids = @[
-        @(PID_PAT),
-        @(PID_CAT),
-        @(PID_TSDT),
-        @(PID_IPMP),
-        @(PID_ASI),
-        // 0x05-0x0F reserved for future use (ISO/IEC 13818-1)
-        @(0x05), @(0x06), @(0x07), @(0x08), @(0x09), @(0x0A), @(0x0B),
-        @(0x0C), @(0x0D), @(0x0E), @(0x0F),
-
-        // DVB
-        @(PID_DVB_NIT_ST),
-        @(PID_DVB_SDT_BAT_ST),
-        @(PID_DVB_EIT_ST_CIT),
-        @(PID_DVB_RST_ST),
-        @(PID_DVB_TDT_TOT_ST),
-        @(PID_DVB_NETWORK_SYNCHRONIZATION),
-        @(PID_DVB_RNT),
-        @(PID_DVB_RESERVED_1),
-        @(PID_DVB_RESERVED_2),
-        @(PID_DVB_RESERVED_3),
-        @(PID_DVB_RESERVED_4),
-        @(PID_DVB_RESERVED_5),
-        @(PID_DVB_INBAND_SIGNALLING),
-        @(PID_DVB_MEASURMENT),
-        @(PID_DVB_DIT),
-        @(PID_DVB_SIT),
-
-        // ATSC
-        @(PID_ATSC_PSIP),
-
-        @(PID_NULL_PACKET),
-    ];
-    return cachedPids;
+    // 0x00-0x1F is contiguously reserved (MPEG-TS tables 0x00-0x04,
+    // 0x05-0x0F future use per ISO/IEC 13818-1, DVB SI 0x10-0x1F),
+    // plus the ATSC PSIP PID and the null packet. Kept branch-only:
+    // this runs per packet in the demuxer's pre-filter.
+    return pid <= PID_DVB_SIT || pid == PID_ATSC_PSIP || pid == PID_NULL_PACKET;
 }
 
 +(BOOL)isDvbReservedPid:(uint16_t)pid

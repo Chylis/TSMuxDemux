@@ -116,6 +116,13 @@ typedef void (^OnTsPacketDataCallback)(NSData * _Nonnull, uint16_t pid, uint8_t 
 +(NSArray<TSPacket*>* _Nonnull)packetsFromChunkedTsData:(NSData* _Nonnull)chunk
                                              packetSize:(NSUInteger)packetSize;
 
+/// Creates a single TSPacket from one raw 188-byte ts packet.
+/// Returns nil for malformed packets and packets with the transport error
+/// indicator set.
+///
+/// @warning Memory ownership: same as packetsFromChunkedTsData:packetSize:.
++(TSPacket* _Nullable)packetWithTsPacketData:(NSData* _Nonnull)tsPacketData;
+
 /// Packetizes the received payload in N 188-byte long raw ts-data chunks and passes each chunk individually to the callback.
 /// @param discontinuityFlag If YES, the discontinuity_indicator will be set in the adaptation field of the first TS packet.
 /// @param randomAccessFlag If YES, the random_access_indicator will be set in the adaptation field of the first TS packet.

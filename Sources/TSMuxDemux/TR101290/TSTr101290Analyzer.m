@@ -93,10 +93,17 @@
 
 #pragma mark - TSTr101290Analyzer
 
+/// TR 101 290: sync is considered acquired after five consecutive valid sync bytes.
+static const uint64_t kSyncAcquisitionThreshold = 5;
+
 @implementation TSTr101290Analyzer
 {
     uint64_t mNumConsecutiveSyncBytes;
     uint64_t mNumConsecutiveCorruptedSyncBytes;
+
+    // Latched on after kSyncAcquisitionThreshold consecutive valid sync bytes,
+    // off when sync loss is declared (>= 2 consecutive corrupted sync bytes).
+    BOOL mSyncAcquired;
 
     // Key = pid, Value = timestamp when a valid section was last completed on this PID
     // For PAT: tracks when tableId 0x00 was last seen on PID 0x0000
@@ -123,6 +130,7 @@
         _stats = [TSTr101290Statistics new];
         mNumConsecutiveSyncBytes = 0;
         mNumConsecutiveCorruptedSyncBytes = 0;
+        mSyncAcquired = NO;
         mSectionLastSeenMsMap = [NSMutableDictionary dictionary];
         mIntervalErrorLastReportedMsMap = [NSMutableDictionary dictionary];
         mPidLastSeenMsMap = [NSMutableDictionary dictionary];
@@ -142,6 +150,10 @@
 {
     [self checkTsSyncLoss:tsPacket];
 
+    if (tsPacket.header.syncByte != TS_PACKET_HEADER_SYNC_BYTE) {
+        // The remaining header bits cannot be trusted
+        return;
+    }
     if (tsPacket.header.pid == PID_NULL_PACKET) {
         // Don't analyze null packets
         return;
@@ -153,7 +165,6 @@
             mLastIntervalCheckMs = context.nowMs;
         }
 
-        [self checkSyncByteError:tsPacket];
         [self checkPatError:tsPacket context:context checkIntervalError:checkIntervalError];
         [self checkPmtError:tsPacket context:context checkIntervalError:checkIntervalError];
         [self checkCcError:tsPacket];
@@ -167,28 +178,40 @@
 {
     BOOL isValidSyncByte = tsPacket.header.syncByte == TS_PACKET_HEADER_SYNC_BYTE;
     if (isValidSyncByte) {
-        mNumConsecutiveSyncBytes++;
-        mNumConsecutiveCorruptedSyncBytes = 0;
+        [self reportValidSyncByte];
     } else {
-        mNumConsecutiveSyncBytes = 0;
-        mNumConsecutiveCorruptedSyncBytes++;
-        if (mNumConsecutiveCorruptedSyncBytes >= 2) {
-            _stats.prio1.tsSyncLoss++;
-        }
+        [self reportInvalidSyncByte];
+    }
+}
+
+-(void)reportValidSyncByte
+{
+    mNumConsecutiveSyncBytes++;
+    mNumConsecutiveCorruptedSyncBytes = 0;
+    if (mNumConsecutiveSyncBytes >= kSyncAcquisitionThreshold) {
+        mSyncAcquired = YES;
+    }
+}
+
+-(void)reportInvalidSyncByte
+{
+    // Sync_byte_error (1.2) is counted while sync is held. Once sync loss is
+    // declared the prio1 measurements are suspended until re-acquisition, so
+    // further corrupted sync bytes only feed the Ts_sync_loss tracking.
+    if (mSyncAcquired) {
+        _stats.prio1.syncByteError++;
+    }
+    mNumConsecutiveSyncBytes = 0;
+    mNumConsecutiveCorruptedSyncBytes++;
+    if (mNumConsecutiveCorruptedSyncBytes >= 2) {
+        _stats.prio1.tsSyncLoss++;
+        mSyncAcquired = NO;
     }
 }
 
 -(BOOL)isSyncAcquired
 {
-    return mNumConsecutiveSyncBytes >= 5;
-}
-
--(void)checkSyncByteError:(TSPacket * _Nonnull)tsPacket
-{
-    BOOL isValidSyncByte = tsPacket.header.syncByte == TS_PACKET_HEADER_SYNC_BYTE;
-    if (!isValidSyncByte) {
-        _stats.prio1.syncByteError++;
-    }
+    return mSyncAcquired;
 }
 
 -(void)checkPatError:(TSPacket * _Nonnull)tsPacket

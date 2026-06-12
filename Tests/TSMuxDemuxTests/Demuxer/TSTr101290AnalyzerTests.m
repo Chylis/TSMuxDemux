@@ -137,19 +137,66 @@ static const uint16_t kTestAudioPid = 0x102;
                    @"Single corrupted sync byte should not cause sync loss");
 }
 
+- (void)test_tsSyncLoss_corruptedRunInterruptedByValidSyncByte {
+    [self acquireSync];
+
+    TSTr101290Statistics *stats = self.analyzer.stats;
+
+    // A valid sync byte between two corrupted ones means they are not
+    // consecutive - even if the valid packet itself was dropped before
+    // analysis (null packet or filtered-out PID)
+    [self.analyzer reportInvalidSyncByte];
+    [self.analyzer reportValidSyncByte];
+    [self.analyzer reportInvalidSyncByte];
+
+    XCTAssertEqual(stats.prio1.tsSyncLoss, 0,
+                   @"Non-consecutive corrupted sync bytes should not cause sync loss");
+}
+
 #pragma mark - Sync Byte Error Tests (1.2)
 
 - (void)test_syncByteError_afterSyncAcquired {
     [self acquireSync];
 
     TSTr101290Statistics *stats = self.analyzer.stats;
-
-    // After sync is acquired, sync byte errors are counted separately
-    // This is tracked internally by the analyzer when it sees packets
-    // with invalid sync bytes (post-acquisition)
-
-    // Verify initial state
     XCTAssertEqual(stats.prio1.syncByteError, 0);
+
+    // An isolated corrupted sync byte while sync is held is a sync byte error,
+    // not a sync loss
+    [self.analyzer reportInvalidSyncByte];
+    XCTAssertEqual(stats.prio1.syncByteError, 1);
+    XCTAssertEqual(stats.prio1.tsSyncLoss, 0);
+}
+
+- (void)test_syncByteError_notCountedBeforeSyncAcquired {
+    TSTr101290Statistics *stats = self.analyzer.stats;
+
+    [self.analyzer reportInvalidSyncByte];
+    XCTAssertEqual(stats.prio1.syncByteError, 0,
+                   @"Sync byte errors should only be counted after sync acquisition");
+}
+
+- (void)test_syncByteError_suspendedAfterSyncLoss {
+    [self acquireSync];
+
+    TSTr101290Statistics *stats = self.analyzer.stats;
+
+    // Two consecutive corrupted sync bytes: both occur while sync is held,
+    // the second one also declares sync loss
+    [self.analyzer reportInvalidSyncByte];
+    [self.analyzer reportInvalidSyncByte];
+    XCTAssertEqual(stats.prio1.syncByteError, 2);
+    XCTAssertEqual(stats.prio1.tsSyncLoss, 1);
+
+    // After sync loss, measurements are suspended until re-acquisition
+    [self.analyzer reportInvalidSyncByte];
+    XCTAssertEqual(stats.prio1.syncByteError, 2,
+                   @"Sync byte errors should not be counted while sync is lost");
+
+    // Re-acquire and verify counting resumes
+    [self acquireSync];
+    [self.analyzer reportInvalidSyncByte];
+    XCTAssertEqual(stats.prio1.syncByteError, 3);
 }
 
 #pragma mark - PAT Error Tests (1.3)
@@ -694,6 +741,77 @@ static const uint16_t kTestAudioPid = 0x102;
     // State was reset, so T=6000 is treated as first sighting - no interval error
     XCTAssertEqual(stats.prio1.pidError, pidErrorsAfterPhase1,
                    @"No PID error after filter change resets state");
+}
+
+@end
+
+#pragma mark - Demuxer Sync Tracking Integration
+
+/// Verifies that packets dropped by the demuxer before analysis (null packets,
+/// filtered-out PIDs) still feed the TR 101 290 sync tracking.
+@interface TSTr101290NoopDemuxerDelegate : NSObject <TSDemuxerDelegate>
+@end
+
+@implementation TSTr101290NoopDemuxerDelegate
+- (void)demuxer:(TSDemuxer *)demuxer didReceivePat:(TSProgramAssociationTable *)pat previousPat:(TSProgramAssociationTable *)previousPat {}
+- (void)demuxer:(TSDemuxer *)demuxer didReceivePmt:(TSProgramMapTable *)pmt previousPmt:(TSProgramMapTable *)previousPmt {}
+- (void)demuxer:(TSDemuxer *)demuxer didReceiveAccessUnit:(TSAccessUnit *)accessUnit {}
+@end
+
+@interface TSTr101290DemuxerSyncTests : XCTestCase
+@property (nonatomic, strong) TSTr101290NoopDemuxerDelegate *delegate;
+@property (nonatomic, strong) TSDemuxer *demuxer;
+@end
+
+@implementation TSTr101290DemuxerSyncTests
+
+- (void)setUp {
+    [super setUp];
+    self.delegate = [[TSTr101290NoopDemuxerDelegate alloc] init];
+    self.demuxer = [[TSDemuxer alloc] initWithDelegate:self.delegate mode:TSDemuxerModeDVB];
+
+    // Acquire sync with 5 valid packets
+    for (int i = 0; i < 5; i++) {
+        [self.demuxer demux:[TSTestUtils createValidPacketWithPid:0x100 continuityCounter:i]
+            dataArrivalHostTimeNanos:i * 10000000ull];
+    }
+}
+
+- (void)test_demux_corruptedPacketsSeparatedByNullPacket_noSyncLoss {
+    NSMutableData *chunk = [NSMutableData data];
+    [chunk appendData:[TSTestUtils createPacketWithCorruptedSyncByte:0x00 pid:0x100 continuityCounter:5]];
+    [chunk appendData:[TSTestUtils createNullPackets:1 packetSize:TS_PACKET_SIZE_188]];
+    [chunk appendData:[TSTestUtils createPacketWithCorruptedSyncByte:0xFF pid:0x100 continuityCounter:6]];
+    [self.demuxer demux:chunk dataArrivalHostTimeNanos:100000000ull];
+
+    TSTr101290Statistics *stats = self.demuxer.statistics;
+    XCTAssertEqual(stats.prio1.tsSyncLoss, 0,
+                   @"Corrupted sync bytes separated by a valid null packet are not consecutive");
+    XCTAssertEqual(stats.prio1.syncByteError, 2);
+}
+
+- (void)test_demux_corruptedPacketsSeparatedByFilteredPacket_noSyncLoss {
+    self.demuxer.esPidFilter = [NSSet setWithObject:@(0x200)];  // filters out PID 0x100
+
+    NSMutableData *chunk = [NSMutableData data];
+    [chunk appendData:[TSTestUtils createPacketWithCorruptedSyncByte:0x00 pid:0x100 continuityCounter:5]];
+    [chunk appendData:[TSTestUtils createValidPacketWithPid:0x100 continuityCounter:6]];
+    [chunk appendData:[TSTestUtils createPacketWithCorruptedSyncByte:0xFF pid:0x100 continuityCounter:7]];
+    [self.demuxer demux:chunk dataArrivalHostTimeNanos:100000000ull];
+
+    TSTr101290Statistics *stats = self.demuxer.statistics;
+    XCTAssertEqual(stats.prio1.tsSyncLoss, 0,
+                   @"Corrupted sync bytes separated by a valid filtered-out packet are not consecutive");
+    XCTAssertEqual(stats.prio1.syncByteError, 2);
+}
+
+- (void)test_demux_twoConsecutiveCorruptedPackets_syncLoss {
+    NSMutableData *chunk = [NSMutableData data];
+    [chunk appendData:[TSTestUtils createPacketWithCorruptedSyncByte:0x00 pid:0x100 continuityCounter:5]];
+    [chunk appendData:[TSTestUtils createPacketWithCorruptedSyncByte:0xFF pid:0x100 continuityCounter:6]];
+    [self.demuxer demux:chunk dataArrivalHostTimeNanos:100000000ull];
+
+    XCTAssertEqual(self.demuxer.statistics.prio1.tsSyncLoss, 1);
 }
 
 @end

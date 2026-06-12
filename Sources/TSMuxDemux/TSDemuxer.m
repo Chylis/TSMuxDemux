@@ -308,30 +308,96 @@
     return _packetSize;
 }
 
-/// Detects packet size using buffer length modulo arithmetic.
-/// Assumes input is packet-aligned (starts at packet boundary).
-/// BTS (204-byte) is detected only when unambiguous: divisible by 204 but not by 188.
-/// When ambiguous (divisible by both), defaults to standard 188-byte TS packets.
--(NSUInteger)detectPacketSizeFromLength:(NSUInteger)length
+/// Detects packet size by checking where the sync bytes fall.
+/// Assumes input is packet-aligned (starts at packet boundary). Length
+/// arithmetic alone is unreliable: a coalesced batch of N x 1428-byte BTS
+/// datagrams can be divisible by both 188 and 204. A stride is accepted only
+/// if every sampled position carries a sync byte; when both strides match
+/// (possible for short or pathological input), standard 188 wins.
+-(NSUInteger)detectPacketSizeFromChunk:(NSData*)chunk
 {
-    BOOL isBts = (length % TS_PACKET_SIZE_204 == 0) && (length % TS_PACKET_SIZE_188 != 0);
-    return isBts ? TS_PACKET_SIZE_204 : TS_PACKET_SIZE_188;
+    static const NSUInteger kMaxSamples = 16;
+    const uint8_t *bytes = chunk.bytes;
+
+    BOOL stride188 = chunk.length >= TS_PACKET_SIZE_188;
+    BOOL stride204 = chunk.length >= TS_PACKET_SIZE_204;
+    for (NSUInteger i = 0; i < kMaxSamples; ++i) {
+        const NSUInteger off188 = i * TS_PACKET_SIZE_188;
+        const NSUInteger off204 = i * TS_PACKET_SIZE_204;
+        if (off188 < chunk.length && bytes[off188] != TS_PACKET_HEADER_SYNC_BYTE) {
+            stride188 = NO;
+        }
+        if (off204 < chunk.length && bytes[off204] != TS_PACKET_HEADER_SYNC_BYTE) {
+            stride204 = NO;
+        }
+    }
+
+    if (stride204 && !stride188) {
+        return TS_PACKET_SIZE_204;
+    }
+    return TS_PACKET_SIZE_188;
 }
 
 -(void)demux:(NSData* _Nonnull)chunk dataArrivalHostTimeNanos:(uint64_t)dataArrivalHostTimeNanos
 {
     // Auto-detect packet size on first call
     if (_packetSize == 0) {
-        _packetSize = [self detectPacketSizeFromLength:chunk.length];
+        _packetSize = [self detectPacketSizeFromChunk:chunk];
         TSLogInfo(@"Detected %lu-byte TS packets", (unsigned long)_packetSize);
     }
 
-    NSArray<TSPacket*> *tsPackets = [TSPacket packetsFromChunkedTsData:chunk packetSize:_packetSize];
-    for (TSPacket *tsPacket in tsPackets) {
+    if (chunk.length % _packetSize != 0) {
+        TSLogError(@"Received non-integer number of ts packets: %lu (expected multiple of %lu)",
+                   (unsigned long)chunk.length, (unsigned long)_packetSize);
+        return;
+    }
+
+    const uint8_t *base = chunk.bytes;
+    const NSUInteger numberOfPackets = chunk.length / _packetSize;
+    for (NSUInteger i = 0; i < numberOfPackets; ++i) {
+        // Stride by packetSize but parse only the leading 188 bytes: a
+        // 204-byte BTS packet is a standard TS packet followed by 16 bytes
+        // of Reed-Solomon parity, which is ignored.
+        const uint8_t *slot = base + (i * _packetSize);
+
+        // Pid-filter:
+        // Skip uninteresting PIDs before constructing any objects, using the
+        // same predicates the routing below uses: the ES PID filter, reserved
+        // PIDs, and PMT PIDs from the PAT - cheapest first, since this runs
+        // per packet. Null packets are never interesting (the TR101290
+        // analyzer ignores them).
+        if (slot[0] == TS_PACKET_HEADER_SYNC_BYTE) {
+            const uint16_t rawPid = (uint16_t)(((slot[1] & 0x1F) << 8) | slot[2]);
+            const BOOL wanted = rawPid != PID_NULL_PACKET
+                && ([self shouldProcessEsPid:rawPid]
+                    || [TSPidUtil isReservedPid:rawPid]
+                    || [self.pat programNumberFromPid:rawPid] != nil);
+            if (!wanted) {
+                // Still report the valid sync byte so the TR101290 sync
+                // tracking follows the byte stream, not the filtered subset.
+                [self.tsPacketAnalyzer reportValidSyncByte];
+                continue;
+            }
+        } else {
+            // Invalid sync byte: the header bits cannot be trusted, so
+            // report it for TR101290 sync-loss tracking and skip it.
+            [self.tsPacketAnalyzer reportInvalidSyncByte];
+            continue;
+        }
+
+        NSData *tsPacketData = [NSData dataWithBytesNoCopy:(void*)slot
+                                                    length:TS_PACKET_SIZE_188
+                                              freeWhenDone:NO];
+        TSPacket *tsPacket = [TSPacket packetWithTsPacketData:tsPacketData];
+        if (!tsPacket) {
+            // Transport-error or malformed packet, but its sync byte was valid
+            [self.tsPacketAnalyzer reportValidSyncByte];
+            continue;
+        }
+
         BOOL isPes = [self routeTsPacket:tsPacket];
         uint16_t pid = tsPacket.header.pid;
-        if (isPes && ![self shouldProcessEsPid:pid]) continue;
-        
+
         TSTr101290AnalyzeContext *context = [[TSTr101290AnalyzeContext alloc]
                                              initWithPat:self.pat
                                              pmts:self.pmtsByPid
@@ -340,7 +406,7 @@
                                              esPidFilter:_esPidFilter];
         [self.tsPacketAnalyzer analyzeTsPacket:tsPacket context:context];
         [self.pendingCompletedSections removeAllObjects];
-        
+
         if (isPes) {
             TSElementaryStreamBuilder *esBuilder = [self.streamBuilders objectForKey:@(pid)];
             [esBuilder addTsPacket:tsPacket];
