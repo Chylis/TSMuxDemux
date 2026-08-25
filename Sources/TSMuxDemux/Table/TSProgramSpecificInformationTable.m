@@ -66,12 +66,6 @@
                  sectionDataExcludingCrc:(NSData* _Nullable)sectionDataExcludingCrc
                                      crc:(uint32_t)crc
 {
-    
-    if (sectionLength > 1021) {
-        TSLogWarnC(@"Invalid PSI section length: %u", sectionLength);
-        return nil;
-    }
-    
     self = [super init];
     if (self) {
         _tableId = tableId;

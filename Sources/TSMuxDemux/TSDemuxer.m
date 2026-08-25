@@ -85,17 +85,37 @@
 
 -(void)setPat:(TSProgramAssociationTable*)pat
 {
+    if (!pat) {
+        return;
+    }
     TSProgramAssociationTable *prevPat = self.pat;
     if ([pat isEqual:prevPat]) {
         return;
     }
+
+    NSMutableArray<ProgramNumber> *removedPrograms = [NSMutableArray array];
+    for (ProgramNumber programNumber in _pmts) {
+        if (pat.programmes[programNumber] == nil) {
+            [removedPrograms addObject:programNumber];
+        }
+    }
+    if (removedPrograms.count > 0) {
+        [_pmts removeObjectsForKeys:removedPrograms];
+    }
+
     _pat = pat;
     _pmtsByPid = nil;
+    if (removedPrograms.count > 0) {
+        [self syncStreamBuilders];
+    }
     [self.delegate demuxer:self didReceivePat:pat previousPat:prevPat];
 }
 
 -(void)setSdt:(TSDvbServiceDescriptionTable*)sdt
 {
+    if (!sdt) {
+        return;
+    }
     TSDvbServiceDescriptionTable *prevSdt = self.dvb.sdt;
     if ([sdt isEqual:prevSdt]) {
         return;
@@ -108,6 +128,9 @@
 
 -(void)setVct:(TSAtscVirtualChannelTable*)vct
 {
+    if (!vct) {
+        return;
+    }
     TSAtscVirtualChannelTable *prevVct = self.atsc.vct;
     if ([vct isEqual:prevVct]) {
         return;
@@ -194,6 +217,9 @@
 
 -(void)updatePmt:(TSProgramMapTable*)pmt
 {
+    if (!pmt) {
+        return;
+    }
     ProgramNumber programNumber = @(pmt.programNumber);
     TSProgramMapTable *prevPmt = _pmts[programNumber];
     if ([pmt isEqual:prevPmt]) {
@@ -416,6 +442,11 @@
 
 -(void)tableBuilder:(TSPsiTableBuilder *)builder didBuildTable:(TSProgramSpecificInformationTable *)table
 {
+    if (!table) {
+        TSLogWarn(@"Ignoring nil PSI table from builder on PID 0x%04x", builder.pid);
+        return;
+    }
+
     // Store completed section for TR101290 analysis (multiple sections can complete per packet)
     TSTr101290CompletedSection *completed = [[TSTr101290CompletedSection alloc] initWithSection:table pid:builder.pid];
     [self.pendingCompletedSections addObject:completed];

@@ -9,8 +9,13 @@
 #import "../TSTestUtils.h"
 @import TSMuxDemux;
 
+@interface TSPsiTableBuilder (Testing)
+- (void)deliverCompletedSection:(TSProgramSpecificInformationTable *)section;
+@end
+
 @interface TSPsiTableBuilderTests : XCTestCase <TSPsiTableBuilderDelegate>
 @property (nonatomic, strong) NSMutableArray<TSProgramSpecificInformationTable *> *receivedTables;
+@property (nonatomic) NSUInteger nilTableCallbackCount;
 @end
 
 @implementation TSPsiTableBuilderTests
@@ -23,7 +28,47 @@
 #pragma mark - TSPsiTableBuilderDelegate
 
 - (void)tableBuilder:(TSPsiTableBuilder *)builder didBuildTable:(TSProgramSpecificInformationTable *)table {
+    if (!table) {
+        self.nilTableCallbackCount++;
+        return;
+    }
     [self.receivedTables addObject:table];
+}
+
+- (TSProgramSpecificInformationTable *)sectionWithTableId:(uint8_t)tableId
+                                             sectionNumber:(uint8_t)sectionNumber
+                                         lastSectionNumber:(uint8_t)lastSectionNumber
+                                              payloadLength:(NSUInteger)payloadLength {
+    NSMutableData *sectionData = [NSMutableData dataWithLength:5 + payloadLength];
+    uint8_t *bytes = sectionData.mutableBytes;
+    bytes[0] = 0x00;
+    bytes[1] = 0x01;
+    bytes[2] = 0xC1;
+    bytes[3] = sectionNumber;
+    bytes[4] = lastSectionNumber;
+    memset(bytes + 5, sectionNumber, payloadLength);
+
+    return [[TSProgramSpecificInformationTable alloc]
+            initWithTableId:tableId
+            sectionSyntaxIndicator:1
+            reservedBit1:0
+            reservedBits2:3
+            sectionLength:(uint16_t)(sectionData.length + PSI_CRC_LEN)
+            sectionDataExcludingCrc:sectionData
+            crc:0x12345678];
+}
+
+- (void)deliverFourLargeSectionsWithTableId:(uint8_t)tableId
+                                     builder:(TSPsiTableBuilder *)builder {
+    for (uint8_t sectionNumber = 0; sectionNumber < 4; ++sectionNumber) {
+        TSProgramSpecificInformationTable *section =
+        [self sectionWithTableId:tableId
+                   sectionNumber:sectionNumber
+               lastSectionNumber:3
+                    payloadLength:300];
+        XCTAssertNotNil(section, @"Each individual wire section must be valid");
+        [builder deliverCompletedSection:section];
+    }
 }
 
 #pragma mark - Tests
@@ -144,6 +189,51 @@
     NSData *combinedPayload = [sectionData subdataWithRange:NSMakeRange(5, sectionData.length - 5)];
     NSString *payloadString = [[NSString alloc] initWithData:combinedPayload encoding:NSUTF8StringEncoding];
     XCTAssertEqualObjects(payloadString, @"AAABBB", @"Payload should be concatenated in order");
+}
+
+- (void)test_oversizedAggregatedBatAndSdtOther_deliverNonNilTables {
+    TSPsiTableBuilder *builder = [[TSPsiTableBuilder alloc] initWithDelegate:self pid:0x11];
+
+    [self deliverFourLargeSectionsWithTableId:0x4A builder:builder];
+    [self deliverFourLargeSectionsWithTableId:0x46 builder:builder];
+
+    XCTAssertEqual(self.receivedTables.count, 2);
+    XCTAssertEqual(self.nilTableCallbackCount, 0,
+                   @"A builder delegate must never receive a nil table");
+    if (self.receivedTables.count != 2) {
+        return;
+    }
+
+    TSProgramSpecificInformationTable *bat = self.receivedTables[0];
+    TSProgramSpecificInformationTable *sdtOther = self.receivedTables[1];
+    XCTAssertEqual(bat.tableId, (uint8_t)0x4A);
+    XCTAssertEqual(sdtOther.tableId, (uint8_t)0x46);
+    XCTAssertGreaterThan(bat.sectionLength, (uint16_t)1021);
+    XCTAssertGreaterThan(sdtOther.sectionLength, (uint16_t)1021);
+    XCTAssertEqual(bat.sectionDataExcludingCrc.length, (NSUInteger)1205);
+    XCTAssertEqual(sdtOther.sectionDataExcludingCrc.length, (NSUInteger)1205);
+}
+
+- (void)test_wireSectionLengthAbove1021_isRejected {
+    TSPsiTableBuilder *builder = [[TSPsiTableBuilder alloc] initWithDelegate:self pid:0x11];
+    NSMutableData *packetData = [NSMutableData dataWithLength:TS_PACKET_SIZE_188];
+    uint8_t *bytes = packetData.mutableBytes;
+    bytes[0] = TS_PACKET_HEADER_SYNC_BYTE;
+    bytes[1] = 0x40;
+    bytes[2] = 0x11;
+    bytes[3] = 0x10;
+    bytes[4] = 0x00;
+    bytes[5] = 0x4A;
+    bytes[6] = 0xB3;
+    bytes[7] = 0xFE; // section_length = 1022
+    memset(bytes + 8, 0x00, packetData.length - 8);
+
+    TSPacket *packet = [TSPacket packetWithTsPacketData:packetData];
+    XCTAssertNotNil(packet);
+    [builder addTsPacket:packet];
+
+    XCTAssertEqual(self.receivedTables.count, 0,
+                   @"The aggregate exception must not relax the wire-section limit");
 }
 
 - (void)test_multiSectionTable_outOfOrderDelivery {

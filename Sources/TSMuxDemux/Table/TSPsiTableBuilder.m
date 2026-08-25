@@ -246,7 +246,12 @@
     // Check if we have all sections (0 through lastSectionNumber)
     if (self.pendingSections.count == (NSUInteger)(lastSectionNumber + 1)) {
         TSProgramSpecificInformationTable *aggregated = [self aggregatePendingSections];
-        [self.delegate tableBuilder:self didBuildTable:aggregated];
+        if (aggregated) {
+            [self.delegate tableBuilder:self didBuildTable:aggregated];
+        } else {
+            TSLogWarn(@"Failed to aggregate PSI table on PID 0x%04x (tableId=0x%02x); dropping %lu sections",
+                      self.pid, section.tableId, (unsigned long)self.pendingSections.count);
+        }
         [self.pendingSections removeAllObjects];
     }
 }
@@ -334,6 +339,11 @@
 
     const uint8_t sectionSyntaxIndicator = (byte2 & 0x80) >> 7;
     const uint16_t sectionLength = ((byte2 & 0x03) << 8) | (uint16_t)byte3;
+    if (sectionLength > 1021) {
+        TSLogWarn(@"Invalid PSI wire section length on PID 0x%04x (tableId=0x%02x, length=%u)",
+                  self.pid, tableId, sectionLength);
+        return nil;
+    }
 
     TSProgramSpecificInformationTable *section = [[TSProgramSpecificInformationTable alloc]
                                                   initWithTableId:tableId

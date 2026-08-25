@@ -225,6 +225,46 @@ static const uint16_t kVideoPid2 = 0x201;
                     @"Program 1 should still be in PAT");
 }
 
+- (void)test_patUpdate_removeThenRestoreProgram_reemitsUnchangedPmt {
+    NSDictionary *programmes = @{@1: @(kPmtPid1)};
+    [self.demuxer demux:[TSTestUtils createPatDataWithProgrammes:programmes
+                                                   versionNumber:0
+                                               continuityCounter:0]
+             dataArrivalHostTimeNanos:0];
+
+    TSElementaryStream *video = [[TSElementaryStream alloc] initWithPid:kVideoPid1
+                                                              streamType:kRawStreamTypeH264
+                                                             descriptors:nil];
+    [self.demuxer demux:[TSTestUtils createPmtDataWithPmtPid:kPmtPid1
+                                                      pcrPid:kVideoPid1
+                                                     streams:@[video]
+                                               versionNumber:0
+                                           continuityCounter:0]
+             dataArrivalHostTimeNanos:0];
+    XCTAssertEqual(self.delegate.receivedPmts.count, 1);
+    XCTAssertNotNil(self.demuxer.pmts[@1]);
+
+    [self.demuxer demux:[TSTestUtils createPatDataWithProgrammes:@{}
+                                                   versionNumber:1
+                                               continuityCounter:1]
+             dataArrivalHostTimeNanos:0];
+    XCTAssertNil(self.demuxer.pmts[@1], @"Removed PAT programs must evict their cached PMTs");
+
+    [self.demuxer demux:[TSTestUtils createPatDataWithProgrammes:programmes
+                                                   versionNumber:2
+                                               continuityCounter:2]
+             dataArrivalHostTimeNanos:0];
+    [self.demuxer demux:[TSTestUtils createPmtDataWithPmtPid:kPmtPid1
+                                                      pcrPid:kVideoPid1
+                                                     streams:@[video]
+                                               versionNumber:0
+                                           continuityCounter:1]
+             dataArrivalHostTimeNanos:0];
+
+    XCTAssertEqual(self.delegate.receivedPmts.count, 2,
+                   @"The restored program's unchanged PMT must be delivered again");
+}
+
 #pragma mark - Channel Switch Simulation
 
 - (void)test_patUpdate_channelSwitch_replacesProgram {

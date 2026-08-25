@@ -19,8 +19,9 @@
 @property(nonatomic, readonly) uint8_t reservedBit1;
 @property(nonatomic, readonly) uint8_t reservedBits2;
 
-/// The number of bytes of the section immediately following the section_length field, and including the CRC.
-/// The value in this field shall not exceed 1021 (0x3FD).
+/// The number of bytes following the section_length field, including the CRC.
+/// Parsed wire sections do not exceed 1021 (0x3FD); an internally aggregated
+/// multi-section table may have a larger logical length.
 @property(nonatomic, readonly) uint16_t sectionLength;
 /// 'sectionData' property is null in the muxer flow (since the PAT/PMT serialize and inject themselves as sectionData)
 /// 'sectionData' property is non-null in the demuxer flow (since the sectionData is received over the network)
