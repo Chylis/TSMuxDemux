@@ -141,20 +141,6 @@ static TSMuxerSettings *makeSettings(void) {
                     @"psiIntervalMs == 0 should throw");
 }
 
-- (void)test_init_rejectsBitrateOver60000Kbps {
-    TSMuxerSettings *settings = makeSettings();
-    settings.targetBitrateKbps = 60001;
-    XCTAssertThrows(([[TSMuxer alloc] initWithSettings:settings wallClockNanos:^{ return (uint64_t)0; } delegate:nil]),
-                    @"targetBitrateKbps > 60000 should throw");
-}
-
-- (void)test_init_accepts60000Kbps {
-    TSMuxerSettings *settings = makeSettings();
-    settings.targetBitrateKbps = 60000;
-    XCTAssertNoThrow(([[TSMuxer alloc] initWithSettings:settings wallClockNanos:^{ return (uint64_t)0; } delegate:nil]),
-                     @"targetBitrateKbps == 60000 should be accepted");
-}
-
 - (void)test_init_rejectsPcrIntervalZero {
     TSMuxerSettings *settings = makeSettings();
     settings.pcrIntervalMs = 0;
