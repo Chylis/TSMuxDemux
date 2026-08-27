@@ -27,6 +27,7 @@ typedef NS_ENUM(NSUInteger, TSResolvedStreamType) {
     TSResolvedStreamTypeAAC_LATM,      // AAC with LATM transport
     TSResolvedStreamTypeAC3,           // Dolby Digital (ATSC 0x81 or DVB 0x06+descriptor)
     TSResolvedStreamTypeEAC3,          // Dolby Digital Plus (ATSC 0x87 or DVB 0x06+descriptor)
+    TSResolvedStreamTypeAC4,           // Dolby AC-4 (DVB 0x06+extension descriptor 0x7F/0x15)
     TSResolvedStreamTypeSMPTE302M,     // AES3/BSSD audio
     // Video codecs
     TSResolvedStreamTypeMPEG2Video,    // MPEG-2 Video (ISO/IEC 13818-2)

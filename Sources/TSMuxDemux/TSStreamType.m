@@ -10,6 +10,7 @@
 #import "TSConstants.h"
 #import "Descriptor/TSDescriptor.h"
 #import "Descriptor/TSRegistrationDescriptor.h"
+#import "Descriptor/DVB/TSDvbExtensionDescriptor.h"
 
 #pragma mark - Raw stream type constants
 
@@ -76,6 +77,14 @@ static const uint32_t kFormatIdentifierBSSD     = 0x42535344; // ASCII: "BSSD" (
             if (d.descriptorTag == TSDvbDescriptorTagEnhancedAC3) {
                 return TSResolvedStreamTypeEAC3;
             }
+            // Check DVB extension descriptor (tag 0x7F) for AC-4
+            if (d.descriptorTag == TSDvbDescriptorTagExtension &&
+                [d isKindOfClass:[TSDvbExtensionDescriptor class]]) {
+                TSDvbExtensionDescriptor *extension = (TSDvbExtensionDescriptor *)d;
+                if (extension.descriptorTagExtension == TSExtensionDescriptorTagAc4) {
+                    return TSResolvedStreamTypeAC4;
+                }
+            }
             // Check DVB Teletext descriptor (tag 0x56) or VBI Teletext (tag 0x46)
             if (d.descriptorTag == TSDvbDescriptorTagTeletext ||
                 d.descriptorTag == TSDvbDescriptorTagVBITeletext) {
@@ -108,6 +117,7 @@ static const uint32_t kFormatIdentifierBSSD     = 0x42535344; // ASCII: "BSSD" (
         case TSResolvedStreamTypeSCTE35:        return @"SCTE-35";
         case TSResolvedStreamTypeTeletext:      return @"Teletext";
         case TSResolvedStreamTypeSubtitles:     return @"Subtitles";
+        case TSResolvedStreamTypeAC4:           return @"AC-4";
     }
     return @"?";
 }
@@ -121,6 +131,7 @@ static const uint32_t kFormatIdentifierBSSD     = 0x42535344; // ASCII: "BSSD" (
         case TSResolvedStreamTypeAAC_LATM:
         case TSResolvedStreamTypeAC3:
         case TSResolvedStreamTypeEAC3:
+        case TSResolvedStreamTypeAC4:
         case TSResolvedStreamTypeSMPTE302M:
             return YES;
         default:

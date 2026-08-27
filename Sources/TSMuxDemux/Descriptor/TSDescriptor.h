@@ -187,7 +187,6 @@ typedef NS_ENUM(uint8_t, TSAtscDescriptorTag) {
 -(instancetype _Nonnull)initWithTag:(uint8_t)tag
                              length:(uint8_t)length;
 
-+(BOOL)isAudioDescriptor:(uint8_t)descriptorTag;
 -(NSString* _Nonnull)tagDescription;
 +(NSString* _Nonnull)tagDescription:(uint8_t)descriptorTag;
 

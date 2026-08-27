@@ -11,6 +11,7 @@
 #import "TSRegistrationDescriptor.h"
 #import "TSISO639LanguageDescriptor.h"
 #import "DVB/TSDvbServiceDescriptor.h"
+#import "DVB/TSDvbExtensionDescriptor.h"
 #import "SCTE35/TSScte35CueIdentifierDescriptor.h"
 #import "ATSC/TSAtscServiceLocationDescriptor.h"
 
@@ -34,6 +35,9 @@
             break;
         case TSDvbDescriptorTagService:
             descriptorClass = [TSDvbServiceDescriptor class];
+            break;
+        case TSDvbDescriptorTagExtension:
+            descriptorClass = [TSDvbExtensionDescriptor class];
             break;
         case TSScte35DescriptorTagCueIdentifier:
             descriptorClass = [TSScte35CueIdentifierDescriptor class];
@@ -79,18 +83,6 @@
 -(NSUInteger)hash
 {
     return self.descriptorTag ^ (self.descriptorLength << 8);
-}
-
-// FIXME MG: Remove this static func and delegate to subclass when all below descriptors are implemented
-+(BOOL)isAudioDescriptor:(uint8_t)descriptorTag
-{
-    // FIXME MG: Could be AC4 - if TSDescriptorTagExtension: check the next byte (descriptor_tag_extension).
-    return descriptorTag == TSDescriptorTagAudioStream
-    || descriptorTag == TSDescriptorTagMPEG4Audio
-    || descriptorTag == TSDescriptorTagMPEG2AACAudio
-    || descriptorTag == TSDvbDescriptorTagAAC
-    || descriptorTag == TSDvbDescriptorTagAC3
-    || descriptorTag == TSDvbDescriptorTagEnhancedAC3;
 }
 
 -(NSString*)description
