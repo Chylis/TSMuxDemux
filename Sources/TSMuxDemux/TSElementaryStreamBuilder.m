@@ -27,6 +27,27 @@
 
 @end
 
+/// YES if the PES payload starts (after a 3- or 4-byte start code) with an H.264 (type 9)
+/// or HEVC (type 35) access unit delimiter NAL unit.
+static BOOL PayloadStartsWithAccessUnitDelimiter(const uint8_t *payload, NSUInteger length, TSResolvedStreamType type)
+{
+    NSUInteger nal = 0;
+    if (length >= 4 && payload[0] == 0x00 && payload[1] == 0x00 && payload[2] == 0x00 && payload[3] == 0x01) {
+        nal = 4;
+    } else if (length >= 3 && payload[0] == 0x00 && payload[1] == 0x00 && payload[2] == 0x01) {
+        nal = 3;
+    } else {
+        return NO;
+    }
+    if (type == TSResolvedStreamTypeH264) {
+        return length > nal && (payload[nal] & 0x1F) == 9;
+    }
+    if (type == TSResolvedStreamTypeH265) {
+        return length > nal + 1 && ((payload[nal] >> 1) & 0x3F) == 35;
+    }
+    return NO;
+}
+
 @implementation TSElementaryStreamBuilder
 
 -(instancetype _Nonnull)initWithDelegate:(id<TSElementaryStreamBuilderDelegate>)delegate
@@ -84,23 +105,32 @@
 
         const NSUInteger payloadLength = tsPacket.payload.length - pesHeader.payloadOffset;
 
-        // Check if this PES packet belongs to the same access unit (same PTS).
-        // This handles interlaced video where top and bottom fields are sent in separate
-        // PES packets but share the same PTS. It also handles cases where a single frame
-        // is split across multiple PES packets (e.g., multiple slices with the same PTS).
-        // By aggregating PES packets with matching PTS, we ensure the decoder receives
-        // complete frames/field-pairs rather than incomplete data.
-        BOOL isSameAccessUnit = NO;
-        if (self.collectedData.length > 0 && CMTIME_IS_VALID(self.pts) && CMTIME_IS_VALID(pesHeader.pts)) {
-            isSameAccessUnit = CMTimeCompare(self.pts, pesHeader.pts) == 0;
+        // Does this PES packet continue the access unit being collected, or start a new one?
+        // An access unit may span several PES packets (H.222.0 2.4.3.7): only the PES in which it
+        // begins carries the PTS. Rules, for video, in order:
+        // - A PES whose payload starts with an H.264/HEVC access unit delimiter starts a new unit.
+        // - Otherwise, a PES without a PTS continues the unit (a split picture).
+        // - Otherwise, a PES with the unit's PTS continues it (slices an encoder stamps alike);
+        //   any other PTS starts a new unit - also when the unit has no PTS of its own (a fragment
+        //   left by packet loss, or a parameter-set-only unit from a non-conformant mux).
+        // Audio keeps the plain PTS-equality rule: PTS-less audio PES do not occur in practice.
+        const BOOL hasPts = CMTIME_IS_VALID(pesHeader.pts);
+        const BOOL collecting = self.collectedData.length > 0;
+        const BOOL samePts = collecting && hasPts && CMTIME_IS_VALID(self.pts) && CMTimeCompare(self.pts, pesHeader.pts) == 0;
+        BOOL continuesAccessUnit = NO;
+        if (collecting && self.isVideo) {
+            const uint8_t *payload = tsPacket.payload.bytes + pesHeader.payloadOffset;
+            const BOOL startsWithDelimiter = PayloadStartsWithAccessUnitDelimiter(payload, payloadLength, self.resolvedStreamType);
+            continuesAccessUnit = !startsWithDelimiter && (!hasPts || samePts);
+        } else if (collecting) {
+            continuesAccessUnit = samePts;
         }
 
-        if (isSameAccessUnit) {
-            // Same PTS - this is a continuation of the same frame (e.g., another slice)
-            // Append directly to accumulator - single copy
+        if (continuesAccessUnit) {
+            // Append directly to accumulator - single copy. The first PES of the unit owns the
+            // PTS, DTS and discontinuity flag.
             [self.collectedData appendBytes:tsPacket.payload.bytes + pesHeader.payloadOffset
                                      length:payloadLength];
-            // Preserve the original DTS and discontinuity flag from the first PES
         } else {
             // Different PTS - deliver the previous access unit if we have one
             if (self.collectedData.length > 0) {
