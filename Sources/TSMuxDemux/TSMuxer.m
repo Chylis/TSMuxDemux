@@ -114,12 +114,31 @@ typedef struct {
 /// PIDs that need their next emitted packet to carry the discontinuity flag.
 @property(nonatomic, readonly, nonnull) NSMutableSet<NSNumber*> *discontinuousPids;
 
-/// Stats
+/// Stats. Reset by maybeLogStats every STATS_LOG_INTERVAL_MS, so all are per-period unless noted.
+/// When the last stats line was logged. Not reset.
 @property(nonatomic) uint64_t statsLastLogTimeMs;
+/// How many TS packets went out on the wire, null stuffing included.
 @property(nonatomic) uint64_t statsTsPacketCount;
+/// How many of those were nulls, i.e. CBR padding emitted because there was nothing to send.
 @property(nonatomic) uint64_t statsNullPacketCount;
+/// How many access units were handed to the muxer.
 @property(nonatomic) uint64_t statsAccessUnitCount;
+/// How many of those were thrown away because the queue was full.
 @property(nonatomic) uint64_t statsDroppedAccessUnitCount;
+/// How deep the queue got at its worst, in access units.
+@property(nonatomic) NSUInteger statsPeakQueueDepth;
+/// How many access units were turned into TS packets.
+@property(nonatomic) uint64_t statsPacketizedAccessUnitCount;
+/// How much video arrived, in bytes — logged as a rate, to compare against targetBitrateKbps.
+@property(nonatomic) uint64_t statsVideoBytes;
+/// How much audio arrived, in bytes — same, as a rate.
+@property(nonatomic) uint64_t statsAudioBytes;
+/// Bytes arriving on any other PID, so the split accounts for everything enqueued.
+@property(nonatomic) uint64_t statsOtherBytes;
+/// The largest single access unit seen — spots keyframe spikes that stall CBR pacing.
+@property(nonatomic) NSUInteger statsMaxAccessUnitBytes;
+/// Which stream that largest access unit came from.
+@property(nonatomic) uint16_t statsMaxAccessUnitPid;
 
 @end
 
@@ -245,7 +264,8 @@ typedef struct {
         [self.accessUnits removeObjectAtIndex:0];
         [self.discontinuousPids addObject:@(dropped.pid)];
         self.statsDroppedAccessUnitCount++;
-        TSLogWarn(@"Queue overflow: dropped oldest access unit (PID: %u)", dropped.pid);
+        TSLogWarn(@"Queue overflow: dropped oldest access unit (PID: %u, maxNumQueuedAccessUnits: %lu)",
+                  dropped.pid, (unsigned long)_settings.maxNumQueuedAccessUnits);
     }
     
     // Insert in DTS order (PTS fallback) for correct cross-stream interleaving.
@@ -264,6 +284,20 @@ typedef struct {
     }
     [self.accessUnits insertObject:accessUnit atIndex:insertIndex];
     self.statsAccessUnitCount++;
+    self.statsPeakQueueDepth = MAX(self.statsPeakQueueDepth, self.accessUnits.count);
+
+    const NSUInteger auBytes = accessUnit.compressedData.length;
+    if (accessUnit.pid == _settings.videoPid) {
+        self.statsVideoBytes += auBytes;
+    } else if (accessUnit.pid == _settings.audioPid) {
+        self.statsAudioBytes += auBytes;
+    } else {
+        self.statsOtherBytes += auBytes;
+    }
+    if (auBytes > self.statsMaxAccessUnitBytes) {
+        self.statsMaxAccessUnitBytes = auBytes;
+        self.statsMaxAccessUnitPid = accessUnit.pid;
+    }
 }
 
 -(void)tick
@@ -293,23 +327,54 @@ typedef struct {
     const double elapsedSeconds = elapsedMs / 1e3;
     const double actualBitrateKbps = (self.statsTsPacketCount * TS_PACKET_SIZE_188 * 8.0) / elapsedSeconds / 1e3;
     const BOOL isCBR = _settings.targetBitrateKbps > 0;
-    
-    TSLogDebug(@"mode=%s targetKbps=%lu actualKbps=%.0f | receivedAUs=%llu droppedAUs=%llu pendingAUs=%lu | pendingTsPackets=%lu emittedTsPackets=%llu nullTsPackets=%llu",
-               isCBR ? "CBR" : "VBR",
-               (unsigned long)_settings.targetBitrateKbps,
-               actualBitrateKbps,
-               self.statsAccessUnitCount,
-               self.statsDroppedAccessUnitCount,
-               (unsigned long)self.accessUnits.count,
-               (unsigned long)self.pendingTsPackets.count,
-               self.statsTsPacketCount,
-               self.statsNullPacketCount);
+    const double nullPct = self.statsTsPacketCount > 0
+        ? (double)self.statsNullPacketCount * 100.0 / self.statsTsPacketCount
+        : 0.0;
+
+    uint64_t queuedBytes = 0;
+    for (TSAccessUnit *au in self.accessUnits) {
+        queuedBytes += au.compressedData.length;
+    }
+
+    TSLogInfo(@"mode=%s targetKbps=%lu actualKbps=%.0f nullPct=%.1f"
+              " | inVideoKbps=%.0f inAudioKbps=%.0f inOtherKbps=%.0f maxAUBytes=%lu maxAUPid=%u"
+              " | receivedAUs=%llu droppedAUs=%llu packetizedAUs=%llu pendingAUs=%lu limit=%lu peakAUs=%lu queuedBytes=%llu"
+              " | pendingTsPackets=%lu emittedTsPackets=%llu nullTsPackets=%llu (period=%.1fs)",
+              isCBR ? "CBR" : "VBR",
+              (unsigned long)_settings.targetBitrateKbps,
+              actualBitrateKbps,
+              nullPct,
+              (double)self.statsVideoBytes * 8.0 / elapsedSeconds / 1e3,
+              (double)self.statsAudioBytes * 8.0 / elapsedSeconds / 1e3,
+              (double)self.statsOtherBytes * 8.0 / elapsedSeconds / 1e3,
+              (unsigned long)self.statsMaxAccessUnitBytes,
+              self.statsMaxAccessUnitPid,
+              self.statsAccessUnitCount,
+              self.statsDroppedAccessUnitCount,
+              self.statsPacketizedAccessUnitCount,
+              (unsigned long)self.accessUnits.count,
+              (unsigned long)_settings.maxNumQueuedAccessUnits,
+              (unsigned long)self.statsPeakQueueDepth,
+              queuedBytes,
+              (unsigned long)self.pendingTsPackets.count,
+              self.statsTsPacketCount,
+              self.statsNullPacketCount,
+              elapsedSeconds);
 
     self.statsLastLogTimeMs = nowMs;
     self.statsTsPacketCount = 0;
     self.statsNullPacketCount = 0;
     self.statsAccessUnitCount = 0;
     self.statsDroppedAccessUnitCount = 0;
+    self.statsPacketizedAccessUnitCount = 0;
+    self.statsVideoBytes = 0;
+    self.statsAudioBytes = 0;
+    self.statsOtherBytes = 0;
+    self.statsMaxAccessUnitBytes = 0;
+    self.statsMaxAccessUnitPid = 0;
+    // Reseed from the live depth rather than 0: peak is only sampled on enqueue, so a queue
+    // that stays deep but stops receiving would otherwise report peakAUs=0.
+    self.statsPeakQueueDepth = self.accessUnits.count;
 }
 
 #pragma mark - Shared Helpers
@@ -346,6 +411,7 @@ static inline BOOL isIntervalElapsed(uint64_t lastTimeNanos, uint64_t intervalNa
 -(NSMutableArray<TSPacketizedPacket*>*)packetizeAccessUnit:(TSAccessUnit *)accessUnit
                                                   nowNanos:(uint64_t)nowNanos
 {
+    self.statsPacketizedAccessUnitCount++;
     if (CMTIME_IS_INVALID(_ptsAnchor)) {
         const CMTime candidate = CMTIME_IS_VALID(accessUnit.dts) ? accessUnit.dts : accessUnit.pts;
         if (CMTIME_IS_VALID(candidate)) {
