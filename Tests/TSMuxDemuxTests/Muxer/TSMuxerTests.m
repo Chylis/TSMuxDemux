@@ -767,6 +767,94 @@ static const NSUInteger kMaxPayloadSize = 188 - 4 - 2;  // TS_PACKET_SIZE - HEAD
                    expectedPts, decodedPts);
 }
 
+#pragma mark - PTS on an exact frame grid
+
+static uint64_t DecodePesPts(NSData *pes)
+{
+    const uint8_t *bytes = pes.bytes;
+    return ((uint64_t)(bytes[9]  & 0x0E) << 29)
+         | ((uint64_t) bytes[10]         << 22)
+         | ((uint64_t)(bytes[11] & 0xFE) << 14)
+         | ((uint64_t) bytes[12]         << 7)
+         | ((uint64_t) bytes[13]         >> 1);
+}
+
+/// 90 kHz PTS for frames at anchor + n * (num/den s), built the way an encoder on the
+/// host clock builds them: a nanosecond anchor plus an exact frame-grid offset, added
+/// with CMTimeAdd (which rounds the sum to whole nanoseconds when the timescales'
+/// LCM does not fit). The epoch is the first frame's time (video sets the muxer's zero
+/// point) or `epochOffsetNs` before it (another stream got there first).
+static NSArray<NSNumber*> *GridPts(int64_t frameNum, int32_t frameDen, int count, int64_t epochOffsetNs)
+{
+    const CMTime anchor = CMTimeMake(123456789012345, 1000000000); // ~34 h of uptime, in ns
+    const CMTime epoch = CMTimeSubtract(anchor, CMTimeMake(epochOffsetNs, 1000000000));
+    NSMutableArray<NSNumber*> *pts = [NSMutableArray arrayWithCapacity:count];
+    for (int n = 0; n < count; n++) {
+        CMTime t = CMTimeAdd(anchor, CMTimeMake(n * frameNum, frameDen));
+        TSAccessUnit *au = [[TSAccessUnit alloc] initWithPid:256
+                                                         pts:t
+                                                         dts:kCMTimeInvalid
+                                             isDiscontinuous:NO
+                                          isRandomAccessPoint:NO
+                                                  streamType:kRawStreamTypeH264
+                                                  descriptors:nil
+                                              compressedData:[NSData dataWithBytes:(uint8_t[]){0x01} length:1]];
+        [pts addObject:@(DecodePesPts([au toTsPacketPayloadWithEpoch:epoch]))];
+    }
+    return pts;
+}
+
+- (void)test_pes_exactFrameGrid_givesEvenTickGaps {
+    // Captured from a live 60 fps feed before rounding: gaps 1500/1499/1501, repeating.
+    // Strict SDI outputs have rejected ±2-tick jitter. Every gap must be exactly one frame.
+    struct { int64_t num; int32_t den; uint64_t ticks; } rates[] = {
+        {1, 60, 1500}, {1, 50, 1800}, {1, 25, 3600}, {1, 30, 3000}, {1, 24, 3750},
+        {1001, 30000, 3003}, // 23.976 and 59.94 have no whole-tick gap: see the next test
+    };
+    const int64_t epochOffsetsNs[] = {0, 1, 7, 333333, 1210000000};
+    for (size_t r = 0; r < sizeof(rates) / sizeof(rates[0]); r++) {
+        for (size_t e = 0; e < sizeof(epochOffsetsNs) / sizeof(epochOffsetsNs[0]); e++) {
+            NSArray<NSNumber*> *pts = GridPts(rates[r].num, rates[r].den, 600, epochOffsetsNs[e]);
+            for (NSUInteger i = 1; i < pts.count; i++) {
+                uint64_t gap = pts[i].unsignedLongLongValue - pts[i - 1].unsignedLongLongValue;
+                if (gap != rates[r].ticks) {
+                    XCTFail(@"%lld/%d s, epoch offset %lld ns: gap %lu is %llu ticks, expected %llu",
+                            rates[r].num, rates[r].den, epochOffsetsNs[e], (unsigned long)i,
+                            gap, rates[r].ticks);
+                    break;
+                }
+            }
+        }
+    }
+}
+
+- (void)test_pes_fractionalTickRates_stayWithinHalfATickOfTheGrid {
+    // 23.976 (3753.75 ticks) and 59.94 (1501.5 ticks) have no whole-tick gap: each PTS
+    // must be the exact grid time rounded, so gaps alternate 3753/3754 or 1501/1502
+    // and never drift.
+    struct { int64_t num; int32_t den; double ticks; } rates[] = {
+        {1001, 24000, 3753.75}, {1001, 60000, 1501.5},
+    };
+    for (size_t r = 0; r < sizeof(rates) / sizeof(rates[0]); r++) {
+        NSArray<NSNumber*> *pts = GridPts(rates[r].num, rates[r].den, 2400, 0);
+        for (NSUInteger n = 0; n < pts.count; n++) {
+            double exact = n * rates[r].ticks;
+            double error = (double)pts[n].unsignedLongLongValue - exact;
+            if (fabs(error) > 0.5 + 1e-6) {
+                XCTFail(@"%lld/%d s frame %lu: PTS %llu is %.3f ticks from %.2f",
+                        rates[r].num, rates[r].den, (unsigned long)n,
+                        pts[n].unsignedLongLongValue, error, exact);
+                break;
+            }
+            if (n > 0) {
+                uint64_t gap = pts[n].unsignedLongLongValue - pts[n - 1].unsignedLongLongValue;
+                XCTAssertTrue(gap == (uint64_t)floor(rates[r].ticks) || gap == (uint64_t)ceil(rates[r].ticks),
+                              @"gap %llu", gap);
+            }
+        }
+    }
+}
+
 #pragma mark - PMT Deterministic ES Ordering (ISO 13818-1 §2.4.4.8)
 
 - (void)test_pmt_elementaryStreams_sortedByPid {
